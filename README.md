@@ -5,7 +5,8 @@
 > **词表裁剪**（248,320 → 208,030，中英文零损失）与**逐字节验证**工具链。
 >
 > 实测环境：**Windows 11 · RTX 5060 Ti 16 GB（Blackwell `sm_120a`）**。
-> 本仓**只发布工具与方法**，不发布权重。
+> 权重不随仓库分发；**未裁剪的 `.ninfer` 制品（配词表剪切器）随
+> [Release v1.0.0](../../releases/tag/v1.0.0) 提供**，由官方 Apache-2.0 权重本地打包。
 
 ---
 
@@ -32,6 +33,16 @@
 | 系统 | Windows 11（本仓脚本为 Windows；`launch/launch_linux.sh` 为未实测模板）|
 | 工具链 | VS Build Tools 2022 + **CUDA 13.3** + CMake + Ninja |
 | Python | 3.10+（numpy、tokenizers；见 `conversion/requirements.txt`）|
+
+## 下载（Release assets）
+
+| 包 | 内容 | 体积 |
+|---|---|---|
+| `swift-bonsai2-27b-unpruned-v1.0.0.zip.001..005` | **未裁剪制品**（7.736 GiB）+ **词表剪切器** + 包内说明/校验（分卷 zip，需全部下载后解压）| ~8.3 GB |
+| `ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | **完整 C++ 引擎源码**（基树 `ad6cb46` + 本仓补丁，可直接构建）| 11 MB |
+
+> 只要 tools + patch 的话，本仓 `engine/` 与 `conversion/` 已经够用；
+> 上面两个包是给"不想自己 clone/pack"的场景准备的。
 
 ## 快速开始
 

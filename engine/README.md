@@ -1,7 +1,11 @@
 # engine — NInfer 引擎的改动说明
 
-> 本目录**不含引擎源码**（第三方，Apache-2.0），只含**本项目的改动**：
-> `patches/ninfer-bonsai2-port.patch` 是针对基树的完整 diff，`stat.txt` 是改动清单。
+> 本目录含**本项目的改动**：`patches/ninfer-bonsai2-port.patch`（针对基树的完整 diff）、
+> `stat.txt`（改动清单）与构建脚本。
+>
+> **完整引擎源码**（基树 + 已套用本补丁）作为 Release asset 提供：
+> [`ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip`](https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port/releases/tag/v1.0.0)
+> （11 MB）—— 基树上游曾下线过一次（Ambolio 404），这份完整拷贝保证任何时候都能从零构建。
 
 ## 基树
 
