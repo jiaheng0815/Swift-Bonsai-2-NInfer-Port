@@ -38,8 +38,9 @@
 
 | 包 | 内容 | 体积 |
 |---|---|---|
-| `swift-bonsai2-27b-unpruned-v1.0.0.zip.001..004` | **未裁剪制品**（7.736 GiB）+ **词表剪切器** + 包内说明/校验（分卷 zip，需全部下载后用 7-Zip 打开 `.001` 解压）| 6.5 GiB |
-| `ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | **完整 C++ 引擎源码**（基树 `ad6cb46` + 本仓补丁，可直接构建）| 11 MB |
+| `ninfer-swift-bonsai2-runtime-v1.0.0.zip.001..00N` | ★ **开箱即用运行时**：引擎 exe×3 + FFmpeg/VC 运行库 DLL + **裁剪版模型**（可直接服务）+ 词表剪切器 + 启动脚本 + 说明/校验。**解压 → 双击 `launch\launch_windows.bat` 即用**（CUDA 已静态链接，无需装 CUDA）| ~7 GB（分卷）|
+| `swift-bonsai2-27b-unpruned-v1.0.0.zip.001..004` | **未裁剪制品**（7.736 GiB）+ **词表剪切器** + 自包含容器库 + 包内说明/校验 | 6.5 GiB |
+| `ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | **完整 C++ 引擎源码**（基树 `ad6cb46` + 本仓补丁，可直接构建）—— 同一份源码也在本仓 `src/cranebw/` | 11 MB |
 
 > 只要 tools + patch 的话，本仓 `engine/` 与 `conversion/` 已经够用；
 > 上面两个包是给"不想自己 clone/pack"的场景准备的。
