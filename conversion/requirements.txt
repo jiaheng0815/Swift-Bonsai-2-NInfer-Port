@@ -1,0 +1,6 @@
+# conversion/ 与 verify/ 的 Python 依赖
+# 说明：.ninfer 是引擎自带 tools/artifact 容器，脚本通过 sys.path 指向 src/cranebw，
+#       不需要额外安装包。
+numpy>=1.24
+tokenizers>=0.20        # verify/check_vocab_prune.py、check_tokenizer_loss.py、prune_vocab.py --self-check
+huggingface_hub>=0.23   # conversion/parallel_dl.py 仅在用 hf 系函数时需要；纯 range 下载不依赖

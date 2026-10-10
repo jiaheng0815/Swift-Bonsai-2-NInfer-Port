@@ -1,0 +1,1935 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 427804a..fefe5ba 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -35,6 +35,12 @@ endif()
+ if(CMAKE_CUDA_ARCHITECTURES MATCHES "89")
+   add_compile_definitions(NINFER_SM89=1)
+ endif()
++# Blackwell (RTX 50 series) builds: the reference sm_120a kernel set is selected by
++# CMakeLists in src/, but device.h needs a compile-time SM count for the launch
++# policies that cannot query the runtime (see src/core/device.h).
++if(CMAKE_CUDA_ARCHITECTURES MATCHES "^120")
++  add_compile_definitions(NINFER_SM120=1)
++endif()
+ 
+ if(MSVC)
+   add_compile_definitions(NOMINMAX UTF8PROC_STATIC)
+diff --git a/docs/serving.md b/docs/serving.md
+index 2959857..6c746b0 100644
+--- a/docs/serving.md
++++ b/docs/serving.md
+@@ -108,7 +108,10 @@ The endpoint supports:
+ - `temperature`, `top_p`, presence/frequency penalties, and signed integer `seed`;
+ - the compatible `top_k` (`0..20`) and `min_p` (`0..1`) sampler extensions;
+ - up to four non-empty stop strings, applied to both reasoning and answer output;
+-- `n:1`, text-only `modalities`, and `response_format: {"type":"text"}`;
++- `n:1`, text-only `modalities`, and `response_format` in its `text`, `json_object`, and
++  `json_schema` spellings. A structured-output request is decoded under a constraint compiled from
++  the client's schema, so the emitted content satisfies it by construction rather than by
++  post-hoc validation;
+ - non-streaming responses and server-sent event streams;
+ - `stream_options.include_usage`;
+ - llama.cpp-compatible terminal `timings`, plus opt-in `timings_per_token` and
+@@ -122,14 +125,58 @@ The endpoint supports:
+ - Assistant `reasoning_content` and `reasoning` history aliases.
+ 
+ Options whose observable behavior the Engine cannot provide are rejected when they request that
+-behavior. This includes JSON constrained output, nonzero `logit_bias`, requested log probabilities,
+-audio/file input or audio output, `strict:true`, required or named tool choice,
+-`parallel_tool_calls:false` with enabled tools, explicit low/high image detail, web search,
+-moderation, low/high verbosity, stored Chat Completions, and non-empty legacy `functions`.
+-Each capability rejection identifies the affected field and the guarantee NInfer cannot provide.
++behavior. This includes nonzero `logit_bias`, requested log probabilities, audio/file input or audio
++output, required or named tool choice, `parallel_tool_calls:false` with enabled
++tools, explicit low/high image detail, web search, moderation, low/high verbosity, stored Chat
++Completions, and non-empty legacy `functions`. Each capability rejection identifies the affected
++field and the guarantee NInfer cannot provide.
++
++### Structured output
++
++`response_format: {"type":"json_object"}` constrains the response to a JSON object.
++`response_format: {"type":"json_schema","json_schema":{"schema":…,"name":…,"strict":…}}` constrains
++it to that schema, which is carried verbatim and compiled with a cache keyed by its text. `strict`
++is honored by applying the constraint either way, because constrained decoding is a superset of the
++guarantee the flag asks for. The equivalent fields are `text.format` on the Responses surface and
++`output_config.format` on the Messages surface; the Count Tokens route accepts and ignores the
++latter, since it never generates.
++
++The implemented schema subset covers every JSON value kind, `properties`/`required`/
++`additionalProperties`, `prefixItems`/`items`/`minItems`/`maxItems`, `enum`/`const`,
++`minLength`/`maxLength`, `pattern`, `anyOf`/`oneOf`/`allOf`, and `$ref` including recursive
++references. Constraints address the decoded string value, so `maxLength` counts code points and
++`pattern` matches unescaped text.
++
++A constrained request decodes one token per unit rather than drafting a speculative window. The mask
++the Engine hands the sampler describes exactly one position: the grammar advances one token at a
++time, while a speculative unit applies a single per-row sampling configuration to every column, so a
++draft column would be sampled against a state the constraint has already left behind. A unit that is
++not fully accepted cannot be reported either — the Engine's licensed-prefix contract admits a strict
++prefix only together with a finish — so the window is surrendered rather than the guarantee. Schema
++requests are the small auxiliary calls (titles, tool arguments), so the cost lands where the volume
++is lowest.
++
++`strict:true` on a tool declaration is honored the same way, under a constraint of its own. This
++template does not write a tool call's arguments as JSON: it writes
++`<tool_call><function=NAME><parameter=KEY>VALUE</parameter></function></tool_call>`, so the promise
++splits. The markup is constrained — a parameter may only name a declared property of that tool, no
++property is written twice, and `</function>` opens only once every `required` property is present —
++and each value is constrained by its property's schema, with a `string` argument read as raw text
++(the same `enum`/`const`/`pattern`/`minLength`/`maxLength` keywords apply) and every other type as
++the JSON literal it denotes. The constraint arms itself: the tool name is generated ahead of the
++arguments, so which schema governs them is only known from the bytes already emitted.
++
++A schema the Engine cannot enforce is a `400` with code `json_schema_invalid`, raised when the
++request is parsed rather than after it is admitted. Keywords that would narrow the language and are
++not implemented (`not`, `if`/`then`/`else`, `patternProperties`, `propertyNames`, `contains`,
++`uniqueItems`, `dependentSchemas`, `dependentRequired`, `unevaluatedProperties`,
++`unevaluatedItems`) are reported to the caller rather than silently ignored, so a request can be
++rejected instead of answered under a weaker constraint than it asked for.
++
+ Known constrained-decoding aliases (`grammar`, `structured_outputs`, `guided_json`, `guided_regex`,
+-`guided_choice`, and `guided_grammar`) receive the same explicit rejection instead of being treated
+-as unknown hints.
++`guided_choice`, and `guided_grammar`) keep an explicit rejection instead of being treated as
++unknown hints: they name other constraint languages, and accepting one as a JSON Schema would
++misread the client.
+ 
+ Semantically neutral fields do not make an otherwise executable request fail. All-zero
+ `logit_bias`, `logprobs:false`, `top_logprobs:0`, `verbosity:"medium"`, empty legacy tool controls,
+@@ -416,7 +463,7 @@ wire response contains typed `output` Items.
+ | `reasoning.effort` | `none` disables thinking; `low`, `medium`, or `xhigh` selects an effort exposed by the loaded chat template; `minimal`, `high`, and `max` return `reasoning_effort_not_supported` for the registered templates |
+ | `chat_template_kwargs.preserve_thinking` | optional boolean controlling whether closed-turn reasoning remains in reconstructed prompts |
+ | `preserve_thinking` | top-level alias for the same option; conflicting values are rejected |
+-| `text.format` | omitted or `{"type":"text"}` only |
++| `text.format` | omitted or `{"type":"text"}` for an unconstrained answer; `{"type":"json_object"}` and `{"type":"json_schema","name":…,"schema":…,"strict":…}` decode under the compiled constraint |
+ | `tools` | direct function definitions or namespace groups containing function definitions; see below |
+ | `tool_choice` | `auto`, `none`, or function-only `allowed_tools` with mode `auto`; a namespaced selection carries both `namespace` and `name` |
+ | `parallel_tool_calls` | `true` by default; `false` is accepted only when no effective tool is callable |
+diff --git a/include/ninfer/ops/sampling.h b/include/ninfer/ops/sampling.h
+index a4635b2..0ee29d2 100644
+--- a/include/ninfer/ops/sampling.h
++++ b/include/ninfer/ops/sampling.h
+@@ -31,6 +31,17 @@ struct SamplingConfig {
+     float frequency_penalty    = 0.0f;
+     unsigned long long seed    = 0;
+     std::int32_t* token_counts = nullptr; // device [token_domain] i32, or null
++    // Optional device [ceil(token_domain/8)] LSB-first candidate bitset: token v is a candidate
++    // exactly when bit v&7 of byte v>>3 is set. Null means every v in [0,token_domain) is a
++    // candidate, which is the unconstrained case and the only case any caller other than
++    // grammar-constrained decoding passes.
++    //
++    // A clear bit removes v from consideration in every mode and under every purpose, before
++    // penalties, filters, truncation and RNG. The pointer is rebound per decode unit rather than
++    // fixed for the request's life, so a caller that must suspend the constraint (the reasoning
++    // channel, for instance) clears the pointer for those units instead of uploading an
++    // all-ones mask.
++    const std::uint8_t* token_mask = nullptr;
+ };
+ 
+ // Caller-owned transient capacity for every parallel sampling-lane count in the inclusive
+@@ -54,7 +65,13 @@ struct SamplingConfig {
+  *
+  *   adjusted_v = float(logits[v,b])
+  *                - configs[b].presence_penalty * (c_v > 0)
+- *                - configs[b].frequency_penalty * c_v.
++ *                - configs[b].frequency_penalty * c_v,
++ *
++ * except that when configs[b].token_mask is non-null, adjusted_v is negative infinity for every v
++ * whose mask bit is clear, independent of c_v and the penalties. A masked-out v is therefore absent
++ * from the candidate set in greedy and stochastic modes alike, and never selected. Negative
++ * infinity round-trips through the candidate ordering as the smallest representable key, so a
++ * masked-out entry sorts below every real logit and above the reserved empty key.
+  *
+  * A greedy row selects min argmax_v adjusted_v and skips filters and RNG. Candidates for a
+  * positive-temperature row are sorted by adjusted_v descending with lower token id breaking
+diff --git a/include/ninfer/types.h b/include/ninfer/types.h
+index d85180b..9b9ca7e 100644
+--- a/include/ninfer/types.h
++++ b/include/ninfer/types.h
+@@ -262,6 +262,13 @@ struct ExecutionOptions {
+     ThinkingControlOptions thinking;
+ };
+ 
++// One tool's declared argument schema, named so the constraint can be selected by the tool name the
++// model generated. `schema` is the tool's `input_schema` as the client sent it.
++struct ToolArgumentSchema {
++    std::string name;
++    std::string schema;
++};
++
+ struct OutputOptions {
+     bool raw                     = false;
+     bool preserve_special_tokens = false;
+@@ -269,6 +276,24 @@ struct OutputOptions {
+     // function-name grammar; it does not require the name to match a currently declared tool.
+     std::uint32_t tool_name_max_length = 128;
+     bool tolerant_tool_calls = false;
++    // Structured-output constraint supplied by the protocol adapter: a JSON Schema document, verbatim
++    // as the client sent it. When set, the frontend masks every sampled position so the emitted
++    // content satisfies the schema, and the request cannot terminate before the document is complete.
++    //
++    // The schema is carried as text rather than as a compiled handle because only the frontend owns
++    // the vocabulary a compiled constraint is bound to, and because the compile is cached by this
++    // text: a client resending identical bytes hits the cache, and a semantically identical schema
++    // written differently compiles again. That trade is deliberate; canonicalizing here would put a
++    // schema normalizer on the request path.
++    std::optional<std::string> structured_output_schema;
++
++    // Tools whose generated arguments a strict request requires to satisfy their declared schema.
++    //
++    // The constraint is per tool because the tool name is generated in the same stream, ahead of the
++    // arguments: only once it is known does the Frontend know which schema governs the text that
++    // follows. Carried as text for the same reason `structured_output_schema` is — only the Frontend
++    // owns the vocabulary a compiled constraint is bound to.
++    std::vector<ToolArgumentSchema> tool_argument_schemas;
+ };
+ 
+ struct RequestOptions {
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 9534ec4..d02266f 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -354,8 +354,14 @@ ninfer_cuda_archive(ninfer_ops)
+ target_link_libraries(ninfer_ops PUBLIC ninfer_core PRIVATE ${_ninfer_nvfp4_non_rdc})
+ 
+ # Product-independent text and media mechanisms.
++# json_schema/regex_engine/json_grammar are the model-independent half of schema-constrained
++# decoding: they decide what a byte stream may do under a schema and know nothing about a tokenizer.
++# The vocabulary-dependent half (the token trie and the mask builder) lives with the frontend.
+ add_library(ninfer_text STATIC
+   text/unicode.cpp
++  text/json_schema.cpp
++  text/regex_engine.cpp
++  text/json_grammar.cpp
+   ${PROJECT_SOURCE_DIR}/third_party/utf8proc/utf8proc.c)
+ ninfer_internal_includes(ninfer_text)
+ 
+diff --git a/src/core/device.h b/src/core/device.h
+index dc1efd4..7d7734e 100644
+--- a/src/core/device.h
++++ b/src/core/device.h
+@@ -25,8 +25,10 @@ int device_sm_count();
+ inline constexpr int kTargetSmCount = 128; // NVIDIA GeForce RTX 4090
+ #elif defined(NINFER_SM86)
+ inline constexpr int kTargetSmCount = 82; // NVIDIA GeForce RTX 3090
++#elif defined(NINFER_SM120)
++inline constexpr int kTargetSmCount = 36; // NVIDIA GeForce RTX 5060 Ti (Blackwell, 36 SM)
+ #else
+-#error "NInfer requires NINFER_SM86 or NINFER_SM89"
++#error "NInfer requires NINFER_SM86, NINFER_SM89 or NINFER_SM120"
+ #endif
+ 
+ // Non-owning execution facts passed to Ops whose launch policy depends on physical device
+diff --git a/src/ops/kernel/sampling.cuh b/src/ops/kernel/sampling.cuh
+index d964c7c..318c3da 100644
+--- a/src/ops/kernel/sampling.cuh
++++ b/src/ops/kernel/sampling.cuh
+@@ -24,12 +24,13 @@ __launch_bounds__(kSamplerBlock) __global__
+     __shared__ float red_val[kSamplerBlock];
+     __shared__ int red_idx[kSamplerBlock];
+ 
+-    // With penalties disabled this remains the exact raw-logit argmax route.
++    // With nothing adjusting the logits this remains the exact raw-logit argmax route. A row under
++    // a token mask is not such a row even when both penalties are zero.
+     if (!(cfg.temperature > 0.0f)) {
+-        float bv             = -CUDART_INF_F;
+-        int bi               = INT_MAX;
+-        const bool penalties = cfg.presence_penalty != 0.0f || cfg.frequency_penalty != 0.0f;
+-        if (!penalties) {
++        float bv          = -CUDART_INF_F;
++        int bi            = INT_MAX;
++        const bool adjust = sampling_needs_adjustment(cfg);
++        if (!adjust) {
+             for (int v = tid; v < token_domain; v += blockDim.x) {
+                 const float x = __bfloat162float(logits[base + v]);
+                 if (sampling_better(x, v, bv, bi)) {
+@@ -117,7 +118,7 @@ __launch_bounds__(kSamplerBlock) __global__
+     unsigned long long keys[kSamplerItemsPerThread];
+ 
+     const bool greedy       = !(cfg.temperature > 0.0f);
+-    const bool penalties    = cfg.presence_penalty != 0.0f || cfg.frequency_penalty != 0.0f;
++    const bool adjust       = sampling_needs_adjustment(cfg);
+     const int cap           = greedy ? 1 : sampling_candidate_cap(cfg, token_domain);
+     const std::int64_t base = static_cast<std::int64_t>(col) * physical_rows;
+     const int tile_start    = partial * kSamplerPartialTileItems;
+@@ -126,7 +127,7 @@ __launch_bounds__(kSamplerBlock) __global__
+         const int v = tile_start + item * blockDim.x + threadIdx.x;
+         if (v < token_domain) {
+             const float raw = __bfloat162float(logits[base + v]);
+-            const float x   = penalties ? sampling_adjusted_logit(raw, v, cfg) : raw;
++            const float x   = adjust ? sampling_adjusted_logit(raw, v, cfg) : raw;
+             keys[item]      = sampling_sort_key(x, v);
+         } else {
+             keys[item] = 0ull;
+diff --git a/src/ops/kernel/sampling_device.cuh b/src/ops/kernel/sampling_device.cuh
+index f290942..3fa5586 100644
+--- a/src/ops/kernel/sampling_device.cuh
++++ b/src/ops/kernel/sampling_device.cuh
+@@ -244,9 +244,25 @@ __device__ __forceinline__ int sampling_dist_offset(int col, int j) {
+ // the penalty at each column sees the same prefix a per-token sampler would.
+ // Non-speculative callers pass no overlay. The scan is bounded by k and
+ // only runs when penalties are active, so it is free on the no-penalty path.
++// True when token `v` is an allowed candidate under `mask`, which is an LSB-first bitset over the
++// token domain.
++__device__ __forceinline__ bool sampling_mask_allows(const std::uint8_t* mask, int v) {
++    return ((mask[static_cast<unsigned>(v) >> 3u] >> (static_cast<unsigned>(v) & 7u)) & 1u) != 0u;
++}
++
++// Whether a row's logits differ from their raw values at all. The raw-argmax fast paths are only
++// exact when nothing adjusts them, so they gate on this rather than on the penalty flags alone: a
++// masked row must go through the adjusting route even with both penalties disabled.
++__device__ __forceinline__ bool sampling_needs_adjustment(const SamplingConfig& c) {
++    return c.token_mask != nullptr || c.presence_penalty != 0.0f || c.frequency_penalty != 0.0f;
++}
++
+ __device__ __forceinline__ float sampling_adjusted_logit(float raw, int v, const SamplingConfig& c,
+                                                          const std::int32_t* overlay = nullptr,
+                                                          int overlay_len             = 0) {
++    // The mask comes first: a masked-out token is not a candidate at all, so no penalty needs to be
++    // computed for it and no later stage may resurrect it.
++    if (c.token_mask != nullptr && !sampling_mask_allows(c.token_mask, v)) { return -CUDART_INF_F; }
+     float x = raw;
+     if (c.presence_penalty == 0.0f && c.frequency_penalty == 0.0f) { return x; }
+     int cnt = c.token_counts != nullptr ? c.token_counts[v] : 0;
+diff --git a/src/ops/kernel/speculative_round.cuh b/src/ops/kernel/speculative_round.cuh
+index 9cf696a..97a8f1f 100644
+--- a/src/ops/kernel/speculative_round.cuh
++++ b/src/ops/kernel/speculative_round.cuh
+@@ -243,9 +243,11 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_accept_greedy_draft
+     std::int32_t* row_tokens        = licensed_tokens + row * cols;
+     const __nv_bfloat16* row_logits =
+         logits + static_cast<std::int64_t>(row) * cols * physical_rows;
+-    const bool penalties = cfg.presence_penalty != 0.0f || cfg.frequency_penalty != 0.0f;
++    // A row under a token mask is not eligible for the raw-argmax shortcut even with both penalties
++    // disabled: the mask changes which token the column selects, and the shortcut never sees it.
++    const bool adjust = sampling_needs_adjustment(cfg);
+ 
+-    if (!(cfg.temperature > 0.0f) && !penalties) {
++    if (!(cfg.temperature > 0.0f) && !adjust) {
+         if (tid == 0) {
+             int a = 0;
+             while (a < extent && row_targets[a] == row_drafts[a]) { ++a; }
+@@ -394,8 +396,8 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_sampling_partial_to
+     if (col > extent) { return; }
+     const SamplingConfig cfg = configs[row];
+     const bool greedy        = !(cfg.temperature > 0.0f);
+-    const bool penalties     = cfg.presence_penalty != 0.0f || cfg.frequency_penalty != 0.0f;
+-    if ((greedy && !penalties) || token_domain <= kSamplerTileItems) { return; }
++    const bool adjust        = sampling_needs_adjustment(cfg);
++    if ((greedy && !adjust) || token_domain <= kSamplerTileItems) { return; }
+     workspace = speculative_workspace_row(workspace, workspace_row_stride, row);
+     if (partial == 0 && threadIdx.x == 0) {
+         workspace.group_done[col] = 0;
+@@ -409,7 +411,7 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_sampling_partial_to
+     const std::int64_t base        = (static_cast<std::int64_t>(row) * cols + col) * physical_rows;
+     const std::int32_t* row_drafts = drafts + row * k;
+     const int tile_start           = partial * kSamplerPartialTileItems;
+-    if (!penalties) {
++    if (!adjust) {
+         unsigned int keys[kSamplerItemsPerThread];
+ #pragma unroll
+         for (int item = 0; item < kSamplerItemsPerThread; ++item) {
+@@ -475,10 +477,10 @@ __launch_bounds__(kSamplerGroupBlock) __global__ void speculative_sampling_group
+     const std::int32_t* row_drafts  = drafts + row * k;
+     std::int32_t* row_tokens        = licensed_tokens + row * cols;
+     if (token_domain <= kSamplerTileItems) { return; }
+-    const bool greedy    = !(cfg.temperature > 0.0f);
+-    const bool penalties = cfg.presence_penalty != 0.0f || cfg.frequency_penalty != 0.0f;
++    const bool greedy = !(cfg.temperature > 0.0f);
++    const bool adjust = sampling_needs_adjustment(cfg);
+ 
+-    if (greedy && !penalties) {
++    if (greedy && !adjust) {
+         if constexpr (SparseProposal) {
+             if (tid < 32 && col == 0 && group == 0)
+                 speculative_sparse_warp_greedy(target_tokens, drafts, lengths, anchors,
+diff --git a/src/runtime/contract/types.h b/src/runtime/contract/types.h
+index 5a27641..c4d28e7 100644
+--- a/src/runtime/contract/types.h
++++ b/src/runtime/contract/types.h
+@@ -168,6 +168,33 @@ struct ResolvedRequestOptions {
+     OutputOptions output;
+ };
+ 
++// Per-row structured-output constraint for one decode or prefill-finalization unit.
++//
++// `token_mask` is the host LSB-first bitset over the target token domain for the row's next sampled
++// position, produced by the Frontend output session that owns the request. An empty span means the
++// row samples from the unconstrained domain for this unit, which is how a constraint that is dormant
++// (the model is still in its reasoning channel) is expressed.
++//
++// The span is a *host* view on purpose. The Engine produces it and owns its lifetime across the
++// Program call, and the Program decides where the device copy lives — putting a device address in a
++// package-neutral contract type would make device memory Engine-visible, which is what token_counts
++// deliberately avoids.
++struct RoundConstraint {
++    std::span<const std::uint8_t> token_mask;
++    // True when the request owns a constraint at all, whether or not this unit carries a mask yet.
++    //
++    // A mask describes exactly one position: the grammar advances one token at a time, and the
++    // sampler applies a single per-row configuration to every column of a speculative unit. A draft
++    // column would therefore be sampled against a state it has already moved past, so a constrained
++    // row is decoded one token per unit — the mask is exact there and no unit is ever partially
++    // accepted, which the Engine's licensed-prefix contract does not permit outside a finish.
++    //
++    // The flag is separate from `token_mask` because dormancy is not absence: while the model is
++    // still reasoning the mask is empty, yet the unit that carries the reasoning close marker is
++    // precisely the one whose trailing columns would escape the constraint.
++    bool constrained = false;
++};
++
+ enum class ContinuationAction : std::uint8_t {
+     Decode,
+     ApplyTargetControl,
+diff --git a/src/runtime/engine/engine_core.h b/src/runtime/engine/engine_core.h
+index d4d9b2d..4931a8a 100644
+--- a/src/runtime/engine/engine_core.h
++++ b/src/runtime/engine/engine_core.h
+@@ -1392,8 +1392,15 @@ private:
+         }
+         setup.finish();
+         ProgramCallScope program_call(*this);
+-        auto progress =
+-            instance_.program->advance_prefill(*request->sequence, &program_call.failed_timing());
++        // Prefill finalization samples the first generated token, so it carries the same constraint
++        // a decode round does. Without it that token could be one the constraint forbids, and the
++        // round cannot be cut to zero tokens to reject it.
++        const runtime::RoundConstraint constraint{
++            .token_mask  = request->output.next_token_mask(),
++            .constrained = request->output.constrained(),
++        };
++        auto progress = instance_.program->advance_prefill(*request->sequence, constraint,
++                                                           &program_call.failed_timing());
+         program_call.finish(progress.timing);
+         resolve_prefill_progress(request, std::move(progress), cancelled_at_unit_start);
+         publish_runtime_stats();
+@@ -1795,8 +1802,21 @@ private:
+         nvtx::ScopedRange decode_range(nvtx::Name::Decode, nvtx::Category::Decode,
+                                        static_cast<std::uint64_t>(membership.size));
+         ProgramCallScope program_call(*this);
+-        auto pending = instance_.program->decode(
+-            membership.sequence_span(), membership.budget_span(), &program_call.failed_timing());
++        // One constraint per row, produced from the session that owns the request. The mask a row
++        // carries describes its *next* position, so it comes from the committed state the last
++        // round left behind; a round that was cut short simply advanced that state less far.
++        std::vector<runtime::RoundConstraint> constraints;
++        constraints.reserve(membership.size);
++        for (std::size_t row = 0; row < membership.size; ++row) {
++            OutputSession& output = slots_[membership.lanes[row]]->output;
++            constraints.push_back(runtime::RoundConstraint{
++                .token_mask  = output.next_token_mask(),
++                .constrained = output.constrained(),
++            });
++        }
++        auto pending = instance_.program->decode(membership.sequence_span(),
++                                                 membership.budget_span(), constraints,
++                                                 &program_call.failed_timing());
+         program_call.finish(pending.execution_timing());
+         commit_pending(std::move(pending), membership.lane_span(), true, cancelled_at_unit_start);
+         publish_runtime_stats();
+diff --git a/src/serve/anthropic_messages_request.cpp b/src/serve/anthropic_messages_request.cpp
+index 02c087f..bbb86cf 100644
+--- a/src/serve/anthropic_messages_request.cpp
++++ b/src/serve/anthropic_messages_request.cpp
+@@ -1,11 +1,13 @@
+ #include "serve/anthropic_messages.h"
+ #include "serve/request_validation.h"
++#include "text/json_schema.h"
+ 
+ #include <algorithm>
+ #include <cstdint>
+ #include <limits>
+ #include <iterator>
+ #include <optional>
++#include <stdexcept>
+ #include <string>
+ #include <string_view>
+ #include <unordered_map>
+@@ -822,9 +824,10 @@ void lower_tools(const Json& body, GenerationRequest& request) {
+                         "tools", "anthropic_tools_not_supported");
+         }
+         if (tool.strict) {
+-            bad_request("strict=true requires generated tool input to satisfy the declared JSON "
+-                        "Schema, which NInfer cannot guarantee",
+-                        "tools", "strict_tools_not_supported");
++            // The Frontend applies this schema to the arguments of the call that names the tool.
++            request.tool_argument_schemas.push_back(
++                ToolArgumentSchema{.name = tool.definition.name,
++                                   .schema = tool.definition.input_schema_json});
+         }
+         if (tool.defer_loading) {
+             bad_request("defer_loading=true requires a deferred tool loader that NInfer does not "
+@@ -899,9 +902,34 @@ void parse_effort(const Json& body, GenerationRequest& request, ParsePurpose pur
+     if (!config.is_object()) { bad_request("output_config must be an object", "output_config"); }
+     if (purpose == ParsePurpose::Messages && config.contains("format") &&
+         !config.at("format").is_null()) {
+-        bad_request("output_config.format requires constrained decoding, which NInfer does not "
+-                    "provide",
+-                    "output_config.format", "output_config_format_not_supported");
++        const Json& format = config.at("format");
++        if (!format.is_object() || !format.contains("type") || !format.at("type").is_string()) {
++            bad_request("output_config.format must be a typed object", "output_config.format");
++        }
++        const std::string type = format.at("type").get<std::string>();
++        if (type == "json_object") {
++            request.structured_output_schema = R"({"type":"object"})";
++        } else if (type == "json_schema") {
++            const Json& schema = format.contains("schema") ? format.at("schema") : Json();
++            if (!format.contains("schema") || !schema.is_object()) {
++                bad_request("output_config.format json_schema must contain a schema object",
++                            "output_config.format", "json_schema_invalid");
++            }
++            request.structured_output_schema = schema.dump();
++        } else {
++            bad_request("output_config.format is not a supported structured-output spelling",
++                        "output_config.format", "output_config_format_not_supported");
++        }
++        // Compiled here so an unusable schema is the client's 400 rather than an engine failure
++        // raised after the request was admitted.
++        try {
++            (void)ninfer::text::JsonSchema::compile(*request.structured_output_schema);
++        } catch (const std::invalid_argument& error) {
++            bad_request(
++                std::string("output_config.format carries a schema the engine cannot enforce: ") +
++                    error.what(),
++                "output_config.format", "json_schema_invalid");
++        }
+     }
+     if (!config.contains("effort") || config.at("effort").is_null()) { return; }
+     if (!config.at("effort").is_string()) {
+diff --git a/src/serve/openai_chat_request.cpp b/src/serve/openai_chat_request.cpp
+index 2a7611c..96a80f1 100644
+--- a/src/serve/openai_chat_request.cpp
++++ b/src/serve/openai_chat_request.cpp
+@@ -1,6 +1,7 @@
+ #include "serve/openai_chat.h"
+ #include "serve/openai_common.h"
+ #include "serve/request_validation.h"
++#include "text/json_schema.h"
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -131,18 +132,8 @@ void validate_standard_output_controls(const Json& body) {
+         }
+     }
+ 
+-    if (body.contains("response_format") && !body.at("response_format").is_null()) {
+-        const Json& format = body.at("response_format");
+-        if (!format.is_object() || !format.contains("type") || !format.at("type").is_string()) {
+-            bad_request("response_format must contain a string type", "response_format");
+-        }
+-        if (format.at("type").get<std::string>() != "text") {
+-            bad_request(
+-                "this response_format requires constrained output, which NInfer cannot guarantee; "
+-                "only {\"type\":\"text\"} is available",
+-                "response_format", "response_format_not_supported");
+-        }
+-    }
++    // `response_format` is parsed rather than validated here: it produces a constraint the engine
++    // has to carry, so it belongs with the other lowering steps. See parse_response_format.
+ 
+     if (body.contains("modalities") && !body.at("modalities").is_null()) {
+         const Json& modalities = body.at("modalities");
+@@ -627,10 +618,11 @@ void parse_tools(const Json& body, GenerationRequest& output) {
+                 bad_request("function strict must be a boolean", "tools");
+             }
+             if (function.at("strict").get<bool>()) {
+-                bad_request(
+-                    "strict=true requires generated function arguments to satisfy the declared "
+-                    "JSON Schema, which NInfer cannot guarantee",
+-                    "tools", "strict_tools_not_supported");
++                // The Frontend applies this schema to the arguments of the call that names the tool,
++                // which is why the name travels with it. A shape it cannot express is rejected when
++                // the constraint is compiled, not silently enforced in part.
++                output.tool_argument_schemas.push_back(
++                    ToolArgumentSchema{.name = tool.name, .schema = tool.input_schema_json});
+             }
+         }
+         output.tools.push_back(std::move(tool));
+@@ -884,6 +876,54 @@ void parse_output_limit(const Json& body, const RequestLimits& limits, OpenAICha
+ 
+ } // namespace
+ 
++// Lowers `response_format` into the wire-independent structured-output field.
++//
++// `json_object` becomes the schema that admits any JSON object, which is exactly what the client
++// asked for. `json_schema` carries the client's document through verbatim so the frontend can
++// compile and cache it by text. `strict` is honored by applying the constraint either way:
++// constrained decoding is a superset of the guarantee the flag asks for.
++void parse_response_format(const Json& body, GenerationRequest& output) {
++    if (!body.contains("response_format") || body.at("response_format").is_null()) { return; }
++    const Json& format = body.at("response_format");
++    if (!format.is_object() || !format.contains("type") || !format.at("type").is_string()) {
++        bad_request("response_format must contain a string type", "response_format");
++    }
++
++    const std::string type = format.at("type").get<std::string>();
++    if (type == "text") { return; }
++
++    std::string schema;
++    if (type == "json_object") {
++        schema = R"({"type":"object"})";
++    } else if (type == "json_schema") {
++        if (!format.contains("json_schema") || !format.at("json_schema").is_object()) {
++            bad_request("response_format json_schema must contain a json_schema object",
++                        "response_format");
++        }
++        const Json& declared = format.at("json_schema");
++        if (!declared.contains("schema")) {
++            bad_request("response_format json_schema must contain a schema", "response_format",
++                        "json_schema_invalid");
++        }
++        schema = declared.at("schema").dump();
++    } else {
++        bad_request("this response_format is not a supported structured-output spelling",
++                    "response_format", "response_format_not_supported");
++    }
++
++    // Compiled here so an unusable schema is the client's 400 rather than an engine failure raised
++    // after the request was admitted. The frontend compiles again -- a cache hit, since the key is
++    // this same text -- because the constraint has to be bound to the vocabulary there.
++    try {
++        (void)ninfer::text::JsonSchema::compile(schema);
++    } catch (const std::invalid_argument& error) {
++        bad_request(std::string("response_format carries a schema the engine cannot enforce: ") +
++                        error.what(),
++                    "response_format", "json_schema_invalid");
++    }
++    output.structured_output_schema = std::move(schema);
++}
++
+ OpenAIChatRequest parse_chat_completion_request(const Json& body, const RequestLimits& limits) {
+     require_object(body, "request body must be a JSON object");
+     validate_standard_output_controls(body);
+@@ -905,6 +945,7 @@ OpenAIChatRequest parse_chat_completion_request(const Json& body, const RequestL
+     parse_messages(body, output.generation);
+     parse_stop(body, output.generation);
+     parse_sampling(body, output.generation);
++    parse_response_format(body, output.generation);
+     parse_stream_options(body, output);
+     parse_response_observations(body, output);
+     parse_output_limit(body, limits, output);
+diff --git a/src/serve/openai_responses_request.cpp b/src/serve/openai_responses_request.cpp
+index 0c1dc7b..724ae7f 100644
+--- a/src/serve/openai_responses_request.cpp
++++ b/src/serve/openai_responses_request.cpp
+@@ -1,6 +1,7 @@
+ #include "serve/openai_responses.h"
+ #include "serve/openai_common.h"
+ #include "serve/request_validation.h"
++#include "text/json_schema.h"
+ 
+ #include <algorithm>
+ #include <iterator>
+@@ -656,6 +657,9 @@ void parse_input(const Json& input, OpenAIResponsesPromptRequest& out,
+ 
+ struct ParsedPromptFields {
+     OpenAIResponsesPromptRequest prompt;
++    // Tools declared `strict`, collected as they are parsed so the constraint travels with the
++    // request rather than being looked up again from the wire body.
++    std::vector<ToolArgumentSchema> strict_tools;
+     Json wire_tools          = Json::array();
+     Json wire_tool_choice    = "auto";
+     bool parallel_tool_calls = true;
+@@ -671,7 +675,8 @@ struct ParsedFunctionTool {
+ ParsedFunctionTool
+ parse_function_tool(const Json& item, std::optional<std::string> wire_namespace,
+                     std::string_view namespace_description,
+-                    std::unordered_map<std::string, OpenAIResponsesFunctionIdentity>& identities) {
++                    std::unordered_map<std::string, OpenAIResponsesFunctionIdentity>& identities,
++                    std::vector<ToolArgumentSchema>& strict_tools) {
+     static const std::unordered_set<std::string> allowed_members = {
+         "type",          "name",         "description", "parameters", "strict", "allowed_callers",
+         "defer_loading", "output_schema"};
+@@ -711,9 +716,9 @@ parse_function_tool(const Json& item, std::optional<std::string> wire_namespace,
+             bad_request("function strict must be a boolean", "tools");
+         }
+         if (item.at("strict").get<bool>()) {
+-            bad_request("strict function schema enforcement requires constrained decoding, "
+-                        "which the Engine does not provide",
+-                        "tools", "strict_tools_not_supported");
++            // The Frontend applies this schema to the arguments of the call that names the function.
++            strict_tools.push_back(
++                ToolArgumentSchema{.name = parsed.definition.name, .schema = parameters.dump()});
+         }
+     }
+     if (item.contains("defer_loading") && !item.at("defer_loading").is_null()) {
+@@ -778,6 +783,9 @@ void parse_tools(const Json& body, ParsedPromptFields& out) {
+                         "duplicate_tool_name");
+         }
+         out.prompt.generation.tools.push_back(std::move(parsed.definition));
++        // The constraint travels with the request so the Frontend never has to look the tool up
++        // again from the wire body.
++        out.prompt.generation.tool_argument_schemas = out.strict_tools;
+         return std::move(parsed.canonical);
+     };
+ 
+@@ -788,7 +796,7 @@ void parse_tools(const Json& body, ParsedPromptFields& out) {
+         const std::string type = item.at("type").get<std::string>();
+         if (type == "function") {
+             out.wire_tools.push_back(
+-                append_function(parse_function_tool(item, std::nullopt, {}, out.tool_identities)));
++                append_function(parse_function_tool(item, std::nullopt, {}, out.tool_identities, out.strict_tools)));
+             continue;
+         }
+         if (type != "namespace") {
+@@ -829,7 +837,8 @@ void parse_tools(const Json& body, ParsedPromptFields& out) {
+                             "tools", "tool_type_not_supported");
+             }
+             canonical["tools"].push_back(append_function(parse_function_tool(
+-                nested, namespace_name, namespace_description, out.tool_identities)));
++                nested, namespace_name, namespace_description, out.tool_identities,
++                out.strict_tools)));
+         }
+         out.wire_tools.push_back(std::move(canonical));
+     }
+@@ -941,7 +950,7 @@ void parse_reasoning(const Json& body, OpenAIResponsesPromptRequest& out) {
+     out.generation.reasoning_effort = *effort;
+ }
+ 
+-void parse_text(const Json& body) {
++void parse_text(const Json& body, GenerationRequest& output) {
+     if (!body.contains("text") || body.at("text").is_null()) { return; }
+     const Json& text = body.at("text");
+     if (!text.is_object()) { bad_request("text must be an object", "text"); }
+@@ -952,10 +961,34 @@ void parse_text(const Json& body) {
+         if (!format.is_object() || !format.contains("type") || !format.at("type").is_string()) {
+             bad_request("text.format must be a typed object", "text");
+         }
+-        if (format.at("type").get<std::string>() != "text" || format.size() != 1) {
+-            bad_request("structured text output requires constrained decoding, which the Engine "
+-                        "does not provide",
+-                        "text", "structured_outputs_not_supported");
++        const std::string type = format.at("type").get<std::string>();
++        if (type == "text") {
++            if (format.size() != 1) {
++                bad_request("text.format {\"type\":\"text\"} admits no other members", "text");
++            }
++        } else if (type == "json_object") {
++            output.structured_output_schema = R"({"type":"object"})";
++        } else if (type == "json_schema") {
++            const Json& schema = format.contains("schema") ? format.at("schema") : Json();
++            if (!format.contains("schema") || !schema.is_object()) {
++                bad_request("text.format json_schema must contain a schema object", "text",
++                            "json_schema_invalid");
++            }
++            output.structured_output_schema = schema.dump();
++        } else {
++            bad_request("text.format is not a supported structured-output spelling", "text",
++                        "structured_outputs_not_supported");
++        }
++        // Compiled here so an unusable schema is the client's 400 rather than an engine failure
++        // raised after the request was admitted.
++        if (output.structured_output_schema) {
++            try {
++                (void)ninfer::text::JsonSchema::compile(*output.structured_output_schema);
++            } catch (const std::invalid_argument& error) {
++                bad_request(std::string("text.format carries a schema the engine cannot enforce: ") +
++                                error.what(),
++                            "text", "json_schema_invalid");
++            }
+         }
+     }
+     if (text.contains("verbosity") && !text.at("verbosity").is_null()) {
+@@ -1049,7 +1082,7 @@ ParsedPromptFields parse_prompt_fields(const Json& body, const RequestLimits& li
+                     "parallel_tool_calls", "parallel_tool_calls_not_supported");
+     }
+     parse_reasoning(body, out.prompt);
+-    parse_text(body);
++    parse_text(body, out.prompt.generation);
+     parse_truncation(body);
+     parse_preserve_thinking(body, out.prompt);
+     out.prompt.generation.max_tokens = limits.default_max_tokens;
+diff --git a/src/serve/request.h b/src/serve/request.h
+index cf87d36..12aa9da 100644
+--- a/src/serve/request.h
++++ b/src/serve/request.h
+@@ -186,6 +186,14 @@ struct GenerationRequest {
+     ninfer::PromptContinuationMode continuation = ninfer::PromptContinuationMode::NewAssistantTurn;
+     bool allow_engine_automatic_shared_prefixes = true;
+     SamplingParams sampling;
++    // The client's JSON Schema document, verbatim, for whichever protocol surface asked for
++    // structured output. Absent means the response is unconstrained. The protocol parsers lower
++    // every spelling (`response_format`, `text.format`, `output_config.format`) into this one field,
++    // so the engine and frontend never learn which surface produced it.
++    std::optional<std::string> structured_output_schema;
++    // Tools declared `strict`, with their `input_schema` verbatim. The Frontend applies each one to
++    // the arguments of the call that names it, which is why the tool name travels with the schema.
++    std::vector<ToolArgumentSchema> tool_argument_schemas;
+ 
+     [[nodiscard]] bool uses_tools() const noexcept {
+         return !tools.empty() && tool_choice.mode != ToolChoiceMode::None;
+diff --git a/src/serve/translate.cpp b/src/serve/translate.cpp
+index 370b180..02a6cb4 100644
+--- a/src/serve/translate.cpp
++++ b/src/serve/translate.cpp
+@@ -307,6 +307,8 @@ ninfer::RequestOptions to_request_options(const GenerationRequest& request,
+     options.output.preserve_special_tokens = request.uses_tools() || request.has_tool_history();
+     options.output.tool_name_max_length = static_cast<std::uint32_t>(request.tool_name_max_length);
+     options.output.tolerant_tool_calls  = server.tolerant_tool_calls;
++    options.output.structured_output_schema = request.structured_output_schema;
++    options.output.tool_argument_schemas    = request.tool_argument_schemas;
+     options.stop.strings.reserve(request.stop_strings.size() *
+                                  (request.stop_strings_apply_to_reasoning ? 2U : 1U));
+     for (const std::string& stop : request.stop_strings) {
+diff --git a/src/targets/qwen3_6/CMakeLists.txt b/src/targets/qwen3_6/CMakeLists.txt
+index 713e790..04d2351 100644
+--- a/src/targets/qwen3_6/CMakeLists.txt
++++ b/src/targets/qwen3_6/CMakeLists.txt
+@@ -6,8 +6,11 @@ target_sources(ninfer_engine PRIVATE
+   ${CMAKE_CURRENT_SOURCE_DIR}/impl/frontend/media_cache.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/impl/frontend/processor.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/impl/frontend/resources.cpp
++  ${CMAKE_CURRENT_SOURCE_DIR}/impl/frontend/token_mask.cpp
++  ${CMAKE_CURRENT_SOURCE_DIR}/impl/frontend/token_trie.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/impl/frontend/tokenizer.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/impl/frontend/tool_call_parser.cpp
++  ${CMAKE_CURRENT_SOURCE_DIR}/impl/frontend/tool_call_state.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/impl/runtime/prefix_identity.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/impl/state/decoder_state.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/impl/state/state_image.cpp
+diff --git a/src/targets/qwen3_6/export/ninfer/targets/qwen3_6/frontend.h b/src/targets/qwen3_6/export/ninfer/targets/qwen3_6/frontend.h
+index c69fbee..57dcdf1 100644
+--- a/src/targets/qwen3_6/export/ninfer/targets/qwen3_6/frontend.h
++++ b/src/targets/qwen3_6/export/ninfer/targets/qwen3_6/frontend.h
+@@ -13,7 +13,14 @@
+ 
+ namespace ninfer::targets::qwen3_6 {
+ 
+-inline constexpr std::size_t kTokenDomain = 248077;
++// Token domain of the pruned bonsai2-27b vocabulary: Chinese + English + shared symbols, plus
++// every token referenced by text/draft_head_token_ids (Q4G64 draft rows cannot be rebuilt from
++// the PQ2_0 output_head, so they are kept verbatim).
++//
++// NOTE this header is shared by qwen3_6_27b and qwen3_6_35b_a3b. The value is now target-specific
++// in fact; loading a stock 35B artifact requires per-target-ising it (FrontendOptions would be
++// the natural home).
++inline constexpr std::size_t kTokenDomain = 208030;
+ 
+ struct FrontendOptions {
+     bool vision_enabled                    = true;
+@@ -120,6 +127,23 @@ public:
+     [[nodiscard]] ThinkingBudgetStats thinking_stats() const noexcept;
+     [[nodiscard]] std::optional<std::string> matched_stop_string() const;
+ 
++    // The tokens the sampler may pick for this session's next generated position, as an LSB-first
++    // bitset over the token domain, or an empty span when the round must be sampled unconstrained.
++    //
++    // The span refers to storage owned by the session and stays valid until the next call to this
++    // method or the session's destruction, so a caller that hands it to another thread copies it
++    // first. An empty span is the answer for a session with no structured-output constraint and for
++    // one whose constraint is still dormant because the model is in the reasoning channel.
++    [[nodiscard]] std::span<const std::uint8_t> next_token_mask();
++
++    // True when this session carries a structured-output constraint, whether or not it is live.
++    //
++    // Decoding such a session more than one token per unit is unsound: the mask speaks only for the
++    // unit's first position, while the sampler applies one per-row configuration to every column. So
++    // the caller reads this once and licenses a single position per unit, which keeps every masked
++    // position exact and every unmasked one out of the response.
++    [[nodiscard]] bool constrained() const noexcept;
++
+ private:
+     class Impl;
+     explicit OutputSession(std::unique_ptr<Impl> impl) noexcept;
+diff --git a/src/targets/qwen3_6/export/ninfer/targets/qwen3_6/runtime.h b/src/targets/qwen3_6/export/ninfer/targets/qwen3_6/runtime.h
+index 4f66bff..3baf9d4 100644
+--- a/src/targets/qwen3_6/export/ninfer/targets/qwen3_6/runtime.h
++++ b/src/targets/qwen3_6/export/ninfer/targets/qwen3_6/runtime.h
+@@ -873,9 +873,12 @@ public:
+     progress_context_transaction(runtime::CancellationFlagView cancellation);
+     void finalize_context_transaction() noexcept;
+     [[nodiscard]] bool has_context_transaction() const noexcept;
+-    [[nodiscard]] PrefillProgress<Variant>
+-    advance_prefill(SequenceHandle<Variant> sequence,
+-                    runtime::ExecutionTiming* failed_timing = nullptr);
++    // Prefill finalization samples the first generated token, so it takes the same per-row
++    // constraint a decode unit does; without it the first content token could be one the constraint
++    // forbids, and the round could not be cut to zero tokens to reject it.
++    [[nodiscard]] PrefillProgress<Variant> advance_prefill(SequenceHandle<Variant> sequence,
++                                                           runtime::RoundConstraint constraint = {},
++                                                           runtime::ExecutionTiming* failed_timing = nullptr);
+     [[nodiscard]] CaptureAssessment
+     inspect_capture(const CaptureOffer<Variant>& offer,
+                     const SharedPrefixHandle<Variant>* exact_shared,
+@@ -907,9 +910,15 @@ public:
+         const SharedPrefixHandle<Variant>* replacement,
+         std::optional<runtime::CheckpointRef> private_replacement, bool permit_shared_publication,
+         CapturePressurePlan<Variant>&& pressure, runtime::CancellationFlagView cancellation);
+-    [[nodiscard]] PendingBatch<Variant> decode(std::span<const SequenceHandle<Variant>> sequences,
+-                                               std::span<const runtime::RoundBudget> budgets,
+-                                               runtime::ExecutionTiming* failed_timing = nullptr);
++    // `constraints` runs parallel to `budgets`: one per row, produced by the Engine from the
++    // requesting session. An empty span means no row is constrained, which is what callers that do
++    // not participate in structured output pass; an empty mask for a listed row means the same for
++    // that row alone.
++    [[nodiscard]] PendingBatch<Variant>
++    decode(std::span<const SequenceHandle<Variant>> sequences,
++           std::span<const runtime::RoundBudget> budgets,
++           std::span<const runtime::RoundConstraint> constraints = {},
++           runtime::ExecutionTiming* failed_timing               = nullptr);
+     // Advance each live sequence with its exact target-owned token row. This does not sample or
+     // advance sampler RNG/occurrence state; callers own output publication and budget accounting.
+     // Each optional execution split is relative to its row's forced-token span.
+diff --git a/src/targets/qwen3_6/impl/frontend/frontend.cpp b/src/targets/qwen3_6/impl/frontend/frontend.cpp
+index fd4462f..1f189ab 100644
+--- a/src/targets/qwen3_6/impl/frontend/frontend.cpp
++++ b/src/targets/qwen3_6/impl/frontend/frontend.cpp
+@@ -8,8 +8,12 @@
+ #include "targets/qwen3_6/impl/frontend/media_cache.h"
+ #include "targets/qwen3_6/impl/frontend/processor.h"
+ #include "targets/qwen3_6/impl/frontend/test_access.h"
++#include "targets/qwen3_6/impl/frontend/token_mask.h"
++#include "targets/qwen3_6/impl/frontend/token_trie.h"
+ #include "targets/qwen3_6/impl/frontend/tokenizer.h"
+ #include "targets/qwen3_6/impl/frontend/tool_call_parser.h"
++#include "text/json_grammar.h"
++#include "text/json_schema.h"
+ #include "text/unicode.h"
+ 
+ #include <nlohmann/json.hpp>
+@@ -21,7 +25,9 @@
+ #include <cstddef>
+ #include <cstdint>
+ #include <limits>
++#include <map>
+ #include <memory>
++#include <mutex>
+ #include <optional>
+ #include <span>
+ #include <stdexcept>
+@@ -53,21 +59,23 @@ constexpr std::uint64_t kRegisteredImageMaximumPixels = 16'777'216;
+ constexpr std::uint64_t kRegisteredVideoMinimumPixels = 4'096;
+ constexpr std::uint64_t kRegisteredVideoMaximumPixels = 25'165'824;
+ 
++// The 33 added tokens occupy the tail of the domain: [kTokenDomain - 33, kTokenDomain).
++// Renumbered for the pruned bonsai2-27b vocabulary (was 248044..248076).
+ constexpr std::array<std::pair<std::string_view, TokenId>, 4> kVisionSpecialTokens = {{
+-    {"<|vision_start|>", 248053},
+-    {"<|vision_end|>", 248054},
+-    {"<|image_pad|>", 248056},
+-    {"<|video_pad|>", 248057},
++    {"<|vision_start|>", 208006},
++    {"<|vision_end|>", 208007},
++    {"<|image_pad|>", 208009},
++    {"<|video_pad|>", 208010},
+ }};
+ 
+ constexpr std::array<std::pair<std::string_view, TokenId>, 7> kConfigOnlyTokens = {{
+-    {"<|audio_start|>", 248070},
+-    {"<|audio_end|>", 248071},
+-    {"<tts_pad>", 248072},
+-    {"<tts_text_bos>", 248073},
+-    {"<tts_text_eod>", 248074},
+-    {"<tts_text_bos_single>", 248075},
+-    {"<|audio_pad|>", 248076},
++    {"<|audio_start|>", 208023},
++    {"<|audio_end|>", 208024},
++    {"<tts_pad>", 208025},
++    {"<tts_text_bos>", 208026},
++    {"<tts_text_eod>", 208027},
++    {"<tts_text_bos_single>", 208028},
++    {"<|audio_pad|>", 208029},
+ }};
+ 
+ Json parse_resource_json(std::string_view bytes, std::string_view name) {
+@@ -250,8 +258,8 @@ fi::CompiledChatTemplate compile_chat_template(const FrontendResources& resource
+ 
+ void validate_registered_tokenizer(const fi::Tokenizer& tokenizer) {
+     if (!tokenizer.has_exact_token_domain(kTokenDomain)) {
+-        throw std::invalid_argument(
+-            "artifact tokenizer does not expose the registered 248077-token domain");
++        throw std::invalid_argument("artifact tokenizer does not expose the registered " +
++                                    std::to_string(kTokenDomain) + "-token domain");
+     }
+     for (const auto& [text, expected] : kVisionSpecialTokens) {
+         const std::vector<int> encoded = tokenizer.encode(text);
+@@ -884,6 +892,8 @@ public:
+               fi::TokenizerResources{.tokenizer_json         = resources.tokenizer_json,
+                                      .tokenizer_config_json  = resources.tokenizer_config_json,
+                                      .generation_config_json = resources.generation_config_json})),
++          token_trie(
++              std::make_shared<const fi::TokenTrie>(fi::TokenTrie::build(*tokenizer, kTokenDomain))),
+           processor(processor_options(resources)), vision_enabled(options.vision_enabled),
+           max_context(options.max_context) {
+         if (options.max_context == 0) {
+@@ -945,12 +955,25 @@ public:
+ 
+     fi::CompiledChatTemplate chat_template;
+     std::shared_ptr<const fi::Tokenizer> tokenizer;
++    // Vocabulary byte trie for constrained decoding, built once per model and shared by every
++    // session. It is model-wide because it depends only on the vocabulary, never on a request.
++    std::shared_ptr<const fi::TokenTrie> token_trie;
+     fi::ProcessorOptions processor;
+     std::shared_ptr<fi::MediaPreprocessCache> media_cache;
+     StopPolicy defaults;
+     std::shared_ptr<const std::vector<TokenId>> thinking_control_tokens;
+     bool vision_enabled       = true;
+     std::uint32_t max_context = 0;
++
++    // Compiled schemas, keyed by the client's verbatim document. Compilation resolves references,
++    // builds the automaton and compiles its patterns, so doing it per request would put that work on
++    // the request path for every call. The mutex is real: a session compiles on the submit path
++    // (HTTP thread) while other sessions run on the worker thread.
++    // Mutable because the cache is filled from make_output_session, which is a const member so that
++    // one Frontend can serve many sessions; the frontend's identity does not change when its cache
++    // grows.
++    mutable std::mutex grammar_mutex;
++    mutable std::map<std::string, std::shared_ptr<const text::JsonSchema>> grammar_cache;
+ };
+ 
+ class OutputSession::Impl {
+@@ -958,16 +981,44 @@ public:
+     Impl(std::shared_ptr<const fi::Tokenizer> tokenizer_, StopPolicy policy_, OutputOptions output,
+          bool starts_in_reasoning, ThinkingControlOptions thinking,
+          std::shared_ptr<const std::vector<TokenId>> thinking_control_tokens_,
+-         std::shared_ptr<const fi::ToolCallOutputContract> tool_call_output_)
++         std::shared_ptr<const fi::ToolCallOutputContract> tool_call_output_,
++         std::shared_ptr<const fi::TokenTrie> trie_,
++         std::shared_ptr<const text::JsonSchema> schema_, std::vector<TokenId> completion_tokens_)
+         : tokenizer(std::move(tokenizer_)), policy(std::move(policy_)),
+           thinking_control_tokens(std::move(thinking_control_tokens_)),
+           preserve_special(output.raw || output.preserve_special_tokens),
+           split_reasoning(starts_in_reasoning && !output.raw),
+           tool_call_output(output.raw ? nullptr : std::move(tool_call_output_),
+-                           output.tool_name_max_length, output.tolerant_tool_calls) {
++                           output.tool_name_max_length, output.tolerant_tool_calls),
++          trie(std::move(trie_)), schema(std::move(schema_)),
++          completion_tokens(std::move(completion_tokens_)) {
+         if (thinking.budget && *thinking.budget == 0) {
+             throw std::invalid_argument("thinking budget must be positive");
+         }
++        if (schema != nullptr) {
++            if (trie == nullptr) {
++                throw std::invalid_argument(
++                    "a structured-output constraint needs a vocabulary trie to mask against");
++            }
++            grammar         = std::make_unique<text::JsonGrammar>(*schema);
++            preview_grammar = std::make_unique<text::JsonGrammar>(*grammar);
++            // The mask is sized by the sampling domain, which is what the device bitset indexes.
++            mask.emplace(kTokenDomain);
++            // The constraint governs the content channel. When the model does not open in the
++            // reasoning channel there is nothing to withhold and it is live from the first token;
++            // otherwise it waits for the `</think>` marker, exactly as the content decoder does.
++            grammar_live = !split_reasoning;
++        }
++        for (const ToolArgumentSchema& declared : output.tool_argument_schemas) {
++            if (trie == nullptr) {
++                throw std::invalid_argument(
++                    "a strict tool needs a vocabulary trie to mask against");
++            }
++            // Compiled here so a shape the machine cannot express is a clean request rejection
++            // rather than a constraint that quietly enforces less than the tool declared.
++            tool.register_tool(declared.name, fi::compile_tool_argument_shape(declared.schema));
++            if (!mask) { mask.emplace(kTokenDomain); }
++        }
+         state.in_reasoning        = split_reasoning;
+         prefix_execution.tracking = starts_in_reasoning;
+         semantic.budget           = thinking.budget;
+@@ -994,6 +1045,33 @@ public:
+     std::vector<GeneratedToolCall> tool_calls;
+     ToolCallParseDiagnostics tool_call_parse;
+     bool preview_ready = false;
++
++    // Structured output. All of these are inert unless `grammar` is set. The committed state is
++    // `grammar`; a round advances the `preview_` copy so a rolled-back speculative round leaves the
++    // constraint where it was, which is the same transaction discipline the decoder state follows.
++    std::shared_ptr<const fi::TokenTrie> trie;
++    std::shared_ptr<const text::JsonSchema> schema;
++    std::unique_ptr<text::JsonGrammar> grammar;
++    std::unique_ptr<text::JsonGrammar> preview_grammar;
++    std::vector<TokenId> completion_tokens;
++    // Bytes seen since the last marker check while the constraint is still waiting for `</think>`.
++    // Held back rather than dropped because the marker can straddle two tokens.
++    std::string grammar_close_pending;
++    std::string preview_close_pending;
++    // True once the content channel has begun and the constraint is in force.
++    bool grammar_live         = false;
++    bool preview_grammar_live = false;
++    // False until the constraint has taken its first byte of the document. Only the run-up from the
++    // close marker to the first value byte tolerates white space; inside the document it stays
++    // excluded, which is what keeps a stalled model from padding the turn with newlines.
++    bool grammar_started         = false;
++    bool preview_grammar_started = false;
++    // A `strict` tool's arguments. Unlike the document constraint this one arms itself: the tool
++    // name is generated ahead of the arguments, so which schema governs them is only known from the
++    // bytes already emitted. It follows the same preview/commit discipline as everything else here.
++    fi::ToolCallState tool;
++    fi::ToolCallState preview_tool;
++    std::optional<fi::TokenMask> mask;
+ };
+ 
+ std::span<const std::int32_t> PreparedPromptData::position_axis(int axis) const {
+@@ -1097,6 +1175,15 @@ runtime::OutputDecision OutputSession::preview_model(std::span<const TokenId> to
+     impl_->preview_prefix_execution = impl_->prefix_execution;
+     impl_->preview_execution_split_after.reset();
+     impl_->preview_output.clear();
++    if (impl_->grammar != nullptr) {
++        // The constraint follows the same preview/commit transaction as the decoder state, so a
++        // speculative round that is cut short leaves the committed grammar where it was.
++        *impl_->preview_grammar         = *impl_->grammar;
++        impl_->preview_close_pending    = impl_->grammar_close_pending;
++        impl_->preview_grammar_live     = impl_->grammar_live;
++        impl_->preview_grammar_started  = impl_->grammar_started;
++    }
++    impl_->preview_tool = impl_->tool;
+ 
+     const auto complete = [&](std::uint32_t count, FinishReason reason,
+                               runtime::ContinuationAction continuation =
+@@ -1147,6 +1234,73 @@ runtime::OutputDecision OutputSession::preview_model(std::span<const TokenId> to
+         StopMatch match;
+         const std::string_view bytes =
+             !impl_->preserve_special && decoded.special ? std::string_view{} : decoded.bytes;
++        // The tool-call markers are ordinary text in the answer channel, so the arguments machine
++        // reads the same bytes the decoder does.
++        for (const char byte : bytes) {
++            (void)impl_->preview_tool.feed(static_cast<std::uint8_t>(byte));
++        }
++        // The constraint is evaluated *before* the token reaches the output decoder. A token it
++        // rejects must never have been appended to the published prefix: returning a truncated
++        // accepted count rolls back the committed tokens, but it does not un-publish text this loop
++        // already produced, so a late check leaks the rejected bytes into the response.
++        if (impl_->preview_grammar != nullptr) {
++            // A byte is kept only when the grammar *accepts* it. `viable()` cannot stand in for that:
++            // a refused byte leaves the configuration set untouched, so the machine still reports
++            // itself viable after swallowing something it rejected — which would publish exactly the
++            // text the constraint exists to exclude.
++            bool refused = false;
++            const auto consume = [&](std::string_view text) {
++                for (const char byte : text) {
++                    const std::uint8_t value = static_cast<std::uint8_t>(byte);
++                    // The content decoder drops white space between the reasoning close marker and
++                    // the answer, so the constraint starts at the same byte it does instead of
++                    // refusing the separator the marker is written with.
++                    if (!impl_->preview_grammar_started && std::isspace(value) != 0) { continue; }
++                    if (!impl_->preview_grammar->feed(value)) {
++                        refused = true;
++                        return;
++                    }
++                    impl_->preview_grammar_started = true;
++                }
++            };
++
++            if (!impl_->preview_grammar_live) {
++                // Still in the reasoning channel. The close marker can straddle two tokens, so the
++                // tail that could still become one is held back rather than dropped.
++                impl_->preview_close_pending.append(bytes);
++                const std::size_t marker = impl_->preview_close_pending.find(kThinkClose);
++                if (marker == std::string::npos) {
++                    const std::size_t hold =
++                        longest_suffix_prefix(impl_->preview_close_pending, kThinkClose, true);
++                    impl_->preview_close_pending.erase(0,
++                                                       impl_->preview_close_pending.size() - hold);
++                } else {
++                    impl_->preview_grammar_live    = true;
++                    impl_->preview_grammar_started = false;
++                    const std::string_view remainder(
++                        impl_->preview_close_pending.data() + marker + kThinkClose.size(),
++                        impl_->preview_close_pending.size() - marker - kThinkClose.size());
++                    impl_->preview_close_pending.clear();
++                    consume(remainder);
++                }
++            } else {
++                consume(bytes);
++            }
++
++            if (refused) {
++                // Unreachable while constrained sessions are licensed one position per unit: the
++                // mask is exact for that position, so the sampler cannot produce a token the grammar
++                // refuses. It survives as the defensive answer for a session driven by a caller that
++                // ignores `constrained()`, because the engine's licensed-prefix contract forbids
++                // accepting a strict prefix of a unit without finishing — so the choice is between
++                // ending the turn and throwing, and a throw here fails every request sharing the
++                // worker rather than this one.
++                return complete(count, FinishReason::OutputLimit);
++            }
++        }
++
++        // Only now does the token reach the output decoder, so every byte in the published prefix has
++        // already passed the constraint.
+         feed_token_bytes(impl_->preview_state, bytes, impl_->policy, impl_->preview_output, count,
+                          &match);
+ 
+@@ -1292,6 +1446,13 @@ PublishedOutput OutputSession::commit_preview() {
+     swap(impl_->state, impl_->preview_state);
+     swap(impl_->semantic, impl_->preview_semantic);
+     swap(impl_->prefix_execution, impl_->preview_prefix_execution);
++    if (impl_->grammar != nullptr) {
++        swap(impl_->grammar, impl_->preview_grammar);
++        swap(impl_->grammar_close_pending, impl_->preview_close_pending);
++        swap(impl_->grammar_live, impl_->preview_grammar_live);
++        swap(impl_->grammar_started, impl_->preview_grammar_started);
++    }
++    swap(impl_->tool, impl_->preview_tool);
+     PublishedOutput output = std::move(impl_->preview_output);
+     impl_->preview_output.clear();
+     impl_->preview_ready = false;
+@@ -1343,6 +1504,33 @@ ThinkingBudgetStats OutputSession::thinking_stats() const noexcept {
+     };
+ }
+ 
++std::span<const std::uint8_t> OutputSession::next_token_mask() {
++    if (impl_ == nullptr) { throw std::logic_error("output session is empty"); }
++    // A tool-argument constraint takes precedence: while it is armed the model is writing the
++    // arguments of a call, not a document.
++    if (impl_->tool.constrained()) {
++        (void)fi::build_tool_token_mask(*impl_->trie, impl_->tool, *impl_->mask);
++        return std::span<const std::uint8_t>(impl_->mask->bytes(), impl_->mask->size_bytes());
++    }
++    if (impl_->grammar == nullptr) { return {}; }
++    // An empty span is the caller's signal to sample this round unconstrained. That is the correct
++    // answer while the model is still reasoning, where masking would forbid the reasoning tokens
++    // themselves rather than the answer.
++    if (!impl_->grammar_live) { return {}; }
++
++    // The builder leaves at least one bit set in every state, which is what the device-side mask
++    // contract requires: an all-zero bitset reads as "no candidate" rather than "unconstrained".
++    (void)fi::build_token_mask(*impl_->trie, *impl_->grammar, impl_->completion_tokens,
++                               *impl_->mask);
++    // The span is owned by the session and stays valid until the next call or destruction; the
++    // Engine copies it to the device before the round runs.
++    return std::span<const std::uint8_t>(impl_->mask->bytes(), impl_->mask->size_bytes());
++}
++
++bool OutputSession::constrained() const noexcept {
++    return impl_ != nullptr && impl_->mask.has_value();
++}
++
+ std::optional<std::string> OutputSession::matched_stop_string() const {
+     if (impl_ == nullptr || !impl_->state.matched_stop_order) { return std::nullopt; }
+     const std::size_t index = *impl_->state.matched_stop_order;
+@@ -1608,9 +1796,34 @@ OutputSession Frontend::make_output_session(const PreparedPrompt& prompt,
+     if (prompt.data_ == nullptr) { throw std::invalid_argument("prepared prompt is empty"); }
+     StopPolicy policy = merge_stop_policy(*impl_->tokenizer, caller_stop);
+     if (output.raw) { policy.publish_stop_token = true; }
++    // The stop token set doubles as the constraint's completion mask: a document that is complete may
++    // end and may do nothing else.
++    std::vector<TokenId> completion_tokens = policy.token_ids;
++
++    std::shared_ptr<const text::JsonSchema> schema;
++    if (output.structured_output_schema) {
++        // Compiled here rather than at the engine boundary because only the frontend owns the
++        // vocabulary a compiled constraint is bound to, and because this is the last point before a
++        // request is admitted where a bad schema can still become a clean request rejection.
++        std::lock_guard<std::mutex> guard(impl_->grammar_mutex);
++        const auto found = impl_->grammar_cache.find(*output.structured_output_schema);
++        if (found != impl_->grammar_cache.end()) {
++            schema = found->second;
++        } else {
++            schema = std::make_shared<const text::JsonSchema>(
++                text::JsonSchema::compile(*output.structured_output_schema));
++            impl_->grammar_cache.emplace(*output.structured_output_schema, schema);
++        }
++    }
++
+     return OutputSession(std::make_unique<OutputSession::Impl>(
+         impl_->tokenizer, std::move(policy), output, prompt.data_->starts_in_reasoning, thinking,
+-        impl_->thinking_control_tokens, prompt.data_->tool_call_output));
++        impl_->thinking_control_tokens, prompt.data_->tool_call_output,
++        // The trie is what a mask is built against, whichever constraint asked for one: a document
++        // schema or a strict tool's argument shape.
++        (schema != nullptr || !output.tool_argument_schemas.empty()) ? impl_->token_trie : nullptr,
++        std::move(schema),
++        std::move(completion_tokens)));
+ }
+ 
+ const StopPolicy& Frontend::default_stop_policy() const noexcept { return impl_->defaults; }
+diff --git a/src/targets/qwen3_6/impl/runtime/api_impl.h b/src/targets/qwen3_6/impl/runtime/api_impl.h
+index bbd0a6f..a057dbb 100644
+--- a/src/targets/qwen3_6/impl/runtime/api_impl.h
++++ b/src/targets/qwen3_6/impl/runtime/api_impl.h
+@@ -416,8 +416,9 @@ bool Program<Variant>::has_context_transaction() const noexcept {
+ template <>
+ PrefillProgress<Variant>
+ Program<Variant>::advance_prefill(SequenceHandle<Variant> sequence,
++                                  runtime::RoundConstraint constraint,
+                                   runtime::ExecutionTiming* failed_timing) {
+-    return impl_->advance_prefill(sequence, failed_timing);
++    return impl_->advance_prefill(sequence, constraint, failed_timing);
+ }
+ 
+ template <>
+@@ -505,8 +506,9 @@ runtime::ContextTransactionReserveStatus Program<Variant>::reserve_active_captur
+ template <>
+ PendingBatch<Variant> Program<Variant>::decode(std::span<const SequenceHandle<Variant>> sequences,
+                                                std::span<const runtime::RoundBudget> budgets,
++                                               std::span<const runtime::RoundConstraint> constraints,
+                                                runtime::ExecutionTiming* failed_timing) {
+-    return impl_->decode(sequences, budgets, failed_timing);
++    return impl_->decode(sequences, budgets, constraints, failed_timing);
+ }
+ 
+ template <>
+diff --git a/src/targets/qwen3_6/impl/runtime/layouts.h b/src/targets/qwen3_6/impl/runtime/layouts.h
+index 6b2596d..7c1b9fe 100644
+--- a/src/targets/qwen3_6/impl/runtime/layouts.h
++++ b/src/targets/qwen3_6/impl/runtime/layouts.h
+@@ -43,6 +43,8 @@ struct PersistentLayout {
+     std::optional<TensorLayout> score_hidden;
+     TensorLayout token_counts;
+     TensorLayout sampling_config;
++    // U8 [ceil(token_domain/8), max_concurrency]: one structured-output mask column per lane.
++    TensorLayout token_mask;
+     std::size_t bytes            = 0;
+     std::size_t kv_payload_bytes = 0;
+ };
+diff --git a/src/targets/qwen3_6/impl/runtime/layouts_impl.h b/src/targets/qwen3_6/impl/runtime/layouts_impl.h
+index a770fae..b02e996 100644
+--- a/src/targets/qwen3_6/impl/runtime/layouts_impl.h
++++ b/src/targets/qwen3_6/impl/runtime/layouts_impl.h
+@@ -232,6 +232,13 @@ PersistentLayout persistent_layout(const SequencePlanImpl& plan) {
+         add_tensor(builder, DType::I32,
+                    {TextConfig::token_domain, static_cast<std::int32_t>(plan.max_concurrency)},
+                    "sampling token counts");
++    // One byte-column per lane, sized by the token domain's bit count. Held as U8 because a mask is
++    // a bitfield rather than an element array; nothing else in this layout uses that dtype.
++    out.token_mask =
++        add_tensor(builder, DType::U8,
++                   {static_cast<std::int32_t>((TextConfig::token_domain + 7) / 8),
++                    static_cast<std::int32_t>(plan.max_concurrency)},
++                   "sampling token masks");
+     const auto config_words = static_cast<std::int32_t>(
+         (sizeof(ops::SamplingConfig) + sizeof(std::int32_t) - 1) / sizeof(std::int32_t));
+     out.sampling_config = add_tensor(
+diff --git a/src/targets/qwen3_6/impl/runtime/program.h b/src/targets/qwen3_6/impl/runtime/program.h
+index e8fce8f..bdb0ebe 100644
+--- a/src/targets/qwen3_6/impl/runtime/program.h
++++ b/src/targets/qwen3_6/impl/runtime/program.h
+@@ -565,6 +565,7 @@ public:
+     void finalize_context_transaction() noexcept;
+     [[nodiscard]] bool has_context_transaction() const noexcept;
+     [[nodiscard]] PrefillProgress advance_prefill(SequenceHandle sequence,
++                                                  runtime::RoundConstraint constraint,
+                                                   runtime::ExecutionTiming* failed_timing);
+     [[nodiscard]] CaptureAssessment
+     inspect_capture(const CaptureOffer& offer, const SharedPrefixHandle* exact_shared,
+@@ -593,7 +594,8 @@ public:
+         CapturePressureCandidate&& pressure, runtime::CancellationFlagView cancellation);
+     [[nodiscard]] PendingBatch decode(std::span<const SequenceHandle> sequences,
+                                       std::span<const runtime::RoundBudget> budgets,
+-                                      runtime::ExecutionTiming* failed_timing);
++                                      std::span<const runtime::RoundConstraint> constraints = {},
++                                      runtime::ExecutionTiming* failed_timing = nullptr);
+     [[nodiscard]] runtime::ExecutionTiming
+     append_forced_tokens(std::span<const SequenceHandle> sequences,
+                          std::span<const TokenId> row_major_tokens, std::uint32_t row_stride,
+@@ -667,6 +669,11 @@ public:
+     std::optional<Tensor> score_hidden;
+     Tensor sampling_config;
+     Tensor token_counts;
++    // Per-lane structured-output masks, [ceil(token_domain/8), max_concurrency] bytes. Persistent so
++    // that a row's SamplingConfig can point at its own column for the request's whole life and only
++    // the column's contents change per round; a per-round pointer would have to survive CUDA Graph
++    // capture, and the ingress memcpy carries contents rather than addresses.
++    Tensor token_mask;
+ 
+     std::vector<SequenceState> continuation_states;
+     std::vector<ContinuationSlot> continuation_slots;
+@@ -998,9 +1005,11 @@ private:
+                         MaterializationTransaction& transaction);
+     void release_materialization_staging(MaterializationTransaction& transaction) noexcept;
+     [[nodiscard]] runtime::PrefillStepResult
+-    advance_prefill_raw(std::uint32_t lane, runtime::ExecutionTiming* failed_timing);
++    advance_prefill_raw(std::uint32_t lane, runtime::RoundConstraint constraint,
++                        runtime::ExecutionTiming* failed_timing);
+     [[nodiscard]] runtime::BatchedGeneratedRound
+     decode_raw(std::span<const std::uint32_t> lanes, std::span<const runtime::RoundBudget> budgets,
++               std::span<const runtime::RoundConstraint> constraints,
+                runtime::ExecutionTiming* failed_timing);
+     [[nodiscard]] runtime::ExecutionTiming
+     resolve_prefill_raw(std::uint32_t lane, bool terminal, runtime::ExecutionTiming* failed_timing);
+@@ -1213,7 +1222,14 @@ private:
+                                     runtime::ExecutionTiming* failed_timing);
+     [[nodiscard]] runtime::PrefillStepResult
+     advance_prefill(SequenceState& sequence, RequestControl& request,
+-                    runtime::ExecutionTiming* failed_timing);
++                    runtime::RoundConstraint constraint, runtime::ExecutionTiming* failed_timing);
++    // Copies one round's mask into this lane's persistent column and returns the device pointer the
++    // sampling config should carry, or null when the row is unconstrained this round. The column is
++    // stable for the request's life, so only its contents move; that keeps a captured launch valid
++    // across rounds. The mask must be uploaded every round it is present — the bits differ from
++    // round to round even though the destination does not.
++    [[nodiscard]] const std::uint8_t*
++    upload_token_mask(SequenceState& sequence, const runtime::RoundConstraint& constraint);
+     void enqueue_dflash_context_append(std::span<const std::uint32_t> lanes,
+                                        std::span<const std::uint32_t> starts,
+                                        std::span<const std::uint32_t> counts);
+@@ -1222,14 +1238,17 @@ private:
+     [[nodiscard]] runtime::BatchedGeneratedRound
+     decode_ordinary_batch(std::span<const std::uint32_t> lanes,
+                           std::span<const runtime::RoundBudget> budgets,
++                          std::span<const runtime::RoundConstraint> constraints,
+                           runtime::ExecutionTiming* failed_timing);
+     [[nodiscard]] runtime::BatchedGeneratedRound
+     decode_mtp_batch(std::span<const std::uint32_t> lanes,
+                      std::span<const runtime::RoundBudget> budgets,
++                     std::span<const runtime::RoundConstraint> constraints,
+                      runtime::ExecutionTiming* failed_timing);
+     [[nodiscard]] runtime::BatchedGeneratedRound
+     decode_dflash_batch(std::span<const std::uint32_t> lanes,
+                         std::span<const runtime::RoundBudget> budgets,
++                        std::span<const runtime::RoundConstraint> constraints,
+                         runtime::ExecutionTiming* failed_timing);
+     void resize_sequence_kv_entitlement(SequenceState& sequence, std::uint32_t text_pages,
+                                         std::uint32_t backend_pages);
+diff --git a/src/targets/qwen3_6/impl/runtime/program_impl.h b/src/targets/qwen3_6/impl/runtime/program_impl.h
+index 7973d8e..5742974 100644
+--- a/src/targets/qwen3_6/impl/runtime/program_impl.h
++++ b/src/targets/qwen3_6/impl/runtime/program_impl.h
+@@ -938,6 +938,7 @@ ProgramImplCore::ProgramImplCore(const LoadedModelData& model_in, const Sequence
+     }
+     token_counts    = plan.persistent.token_counts.bind(backing);
+     sampling_config = plan.persistent.sampling_config.bind(backing);
++    token_mask      = plan.persistent.token_mask.bind(backing);
+     active_continuations.fill(continuation_capacity);
+     for (std::uint32_t lane = 0; lane < max_concurrency; ++lane) { lane_epochs[lane] = 1; }
+     for (std::uint32_t index = 0; index < continuation_capacity; ++index) {
+@@ -7340,7 +7341,7 @@ ProgramImplCore::shared_prefix_summary(const SharedPrefixState& shared) const {
+     };
+ }
+ 
+-PrefillProgress ProgramImplCore::advance_prefill(SequenceHandle sequence,
++PrefillProgress ProgramImplCore::advance_prefill(SequenceHandle sequence, runtime::RoundConstraint constraint,
+                                                  runtime::ExecutionTiming* failed_timing) {
+     if (pending_transaction_ || !valid_sequence(sequence)) {
+         throw std::logic_error("prefill sequence capability is invalid");
+@@ -7350,7 +7351,7 @@ PrefillProgress ProgramImplCore::advance_prefill(SequenceHandle sequence,
+         throw std::logic_error("prefill advance requires a prefilling sequence");
+     }
+     try {
+-        runtime::PrefillStepResult step = advance_prefill_raw(lane, failed_timing);
++        runtime::PrefillStepResult step = advance_prefill_raw(lane, constraint, failed_timing);
+         if (failed_timing != nullptr) { *failed_timing += step.timing; }
+         return wrap_prefill(lane, std::move(step));
+     } catch (...) {
+@@ -8756,11 +8757,20 @@ ProgramImplCore::progress_active_capture_transaction(runtime::CancellationFlagVi
+ 
+ PendingBatch ProgramImplCore::decode(std::span<const SequenceHandle> members,
+                                      std::span<const runtime::RoundBudget> budgets,
++                                     std::span<const runtime::RoundConstraint> constraints,
+                                      runtime::ExecutionTiming* failed_timing) {
+     if (pending_transaction_ || members.empty() || members.size() > max_concurrency ||
+-        budgets.size() != members.size()) {
++        budgets.size() != members.size() ||
++        (!constraints.empty() && constraints.size() != members.size())) {
+         throw std::invalid_argument("decode membership is invalid");
+     }
++    // Callers that do not participate in structured output pass no constraints at all; normalizing
++    // here keeps the row loops from having to test for the absent case.
++    std::vector<runtime::RoundConstraint> unconstrained;
++    if (constraints.empty()) {
++        unconstrained.resize(members.size());
++        constraints = unconstrained;
++    }
+     std::array<std::uint32_t, kMaximumConcurrency> lanes{};
+     for (std::size_t row = 0; row < members.size(); ++row) {
+         if (!valid_sequence(members[row])) {
+@@ -8776,7 +8786,8 @@ PendingBatch ProgramImplCore::decode(std::span<const SequenceHandle> members,
+     }
+     const auto lane_span = std::span<const std::uint32_t>(lanes.data(), members.size());
+     try {
+-        runtime::BatchedGeneratedRound round = decode_raw(lane_span, budgets, failed_timing);
++        runtime::BatchedGeneratedRound round =
++            decode_raw(lane_span, budgets, constraints, failed_timing);
+         if (failed_timing != nullptr) { *failed_timing += round.timing; }
+         return wrap_pending(lane_span, std::move(round));
+     } catch (...) {
+@@ -9990,9 +10001,10 @@ void ProgramImplCore::start_sequence(std::uint32_t lane, SequenceState& sequence
+ }
+ 
+ runtime::PrefillStepResult
+-ProgramImplCore::advance_prefill_raw(std::uint32_t lane, runtime::ExecutionTiming* failed_timing) {
++ProgramImplCore::advance_prefill_raw(std::uint32_t lane, runtime::RoundConstraint constraint,
++                                     runtime::ExecutionTiming* failed_timing) {
+     if (lane >= max_concurrency) { throw std::out_of_range("request lane is out of range"); }
+-    return advance_prefill(active_sequence(lane), requests[lane], failed_timing);
++    return advance_prefill(active_sequence(lane), requests[lane], constraint, failed_timing);
+ }
+ 
+ runtime::ExecutionTiming
+@@ -11427,6 +11439,7 @@ void ProgramImplCore::validate_licensed_tokens(std::span<const TokenId> tokens)
+ 
+ runtime::PrefillStepResult
+ ProgramImplCore::advance_prefill(SequenceState& sequence, RequestControl& request,
++                                 runtime::RoundConstraint constraint,
+                                  runtime::ExecutionTiming* failed_timing) {
+     runtime::ExecutionTimingRecorder timing(runtime::ExecutionTimingPhase::Submit, failed_timing);
+     if (request.lifecycle != Lifecycle::Prefilling || !request.prefill) {
+@@ -11465,6 +11478,19 @@ ProgramImplCore::advance_prefill(SequenceState& sequence, RequestControl& reques
+             rewrite_capture_hidden = state_images->continuation_hidden_slot(selectors.destination);
+             rewrite_capture_hidden_ptr = &rewrite_capture_hidden;
+         }
++        // Prefill finalization samples the first generated token from this lane's *device* config
++        // rather than from a round ingress, so the constraint has to be written into that copy as
++        // well as bound into the host config it was built from. Leaving this out would let the very
++        // first content token be one the constraint forbids, and the round cannot be cut to zero
++        // tokens to reject it.
++        request.sampling_host.token_mask = upload_token_mask(sequence, constraint);
++        {
++            Tensor config_lane = sampling_config.slice(1, static_cast<std::int32_t>(sequence.lane), 1);
++            CUDA_CHECK(cudaMemcpyAsync(config_lane.data, &request.sampling_host,
++                                       sizeof(request.sampling_host), cudaMemcpyHostToDevice,
++                                       device.stream));
++        }
++
+         schedule::PrefillContext schedule_state{
+             {device, model, work, state_images->linear(),
+              replay_records ? &*replay_records : nullptr, io, prefill_hidden, prefill_chunk,
+@@ -11720,9 +11746,27 @@ ProgramImplCore::advance_prefill(SequenceState& sequence, RequestControl& reques
+     }
+ }
+ 
++const std::uint8_t* ProgramImplCore::upload_token_mask(
++    SequenceState& sequence, const runtime::RoundConstraint& constraint) {
++    if (constraint.token_mask.empty()) {
++        // The caller has no constraint for this row this round — either the request carries none, or
++        // its constraint is dormant because the model is still in the reasoning channel.
++        return nullptr;
++    }
++    Tensor column = token_mask.slice(1, static_cast<std::int32_t>(sequence.lane), 1);
++    if (constraint.token_mask.size() != column.bytes()) {
++        throw std::invalid_argument("round constraint mask size does not match the token domain");
++    }
++    CUDA_CHECK(cudaMemcpyAsync(column.data, constraint.token_mask.data(),
++                               constraint.token_mask.size(), cudaMemcpyHostToDevice,
++                               device.stream));
++    return static_cast<const std::uint8_t*>(column.data);
++}
++
+ runtime::BatchedGeneratedRound
+ ProgramImplCore::decode_ordinary_batch(std::span<const std::uint32_t> lanes,
+                                        std::span<const runtime::RoundBudget> budgets,
++                                       std::span<const runtime::RoundConstraint> constraints,
+                                        runtime::ExecutionTiming* failed_timing) {
+     nvtx::ScopedRange round_range(nvtx::Name::DecodeOrdinaryRound, nvtx::Category::Decode,
+                                   static_cast<std::uint64_t>(lanes.size()));
+@@ -11786,7 +11830,11 @@ ProgramImplCore::decode_ordinary_batch(std::span<const std::uint32_t> lanes,
+             const StateImageSelectors selectors                 = state_selectors(sequence);
+             ordinary_host_ingress->state_source_slots[row]      = selectors.source;
+             ordinary_host_ingress->state_destination_slots[row] = selectors.destination;
+-            ordinary_host_ingress->sampling[row]                = request.sampling_host;
++            // The row's config is rebuilt here rather than read-only because the mask pointer is
++            // rebound per round; the pointer itself is stable, only its target's contents move.
++            RequestControl& writable = requests[lanes[row]];
++            writable.sampling_host.token_mask = upload_token_mask(sequence, constraints[row]);
++            ordinary_host_ingress->sampling[row] = writable.sampling_host;
+             ensure_sequence_kv_mapped(sequence, frontier + 1, 0);
+         }
+ 
+@@ -11856,6 +11904,7 @@ ProgramImplCore::decode_ordinary_batch(std::span<const std::uint32_t> lanes,
+ runtime::BatchedGeneratedRound
+ ProgramImplCore::decode_mtp_batch(std::span<const std::uint32_t> lanes,
+                                   std::span<const runtime::RoundBudget> budgets,
++                                  std::span<const runtime::RoundConstraint> constraints,
+                                   runtime::ExecutionTiming* failed_timing) {
+     nvtx::ScopedRange round_range(nvtx::Name::DecodeMtpRound, nvtx::Category::Mtp,
+                                   static_cast<std::uint64_t>(lanes.size()));
+@@ -11919,9 +11968,15 @@ ProgramImplCore::decode_mtp_batch(std::span<const std::uint32_t> lanes,
+             const std::uint32_t max_by_budget = budgets[row].generated_tokens_remaining > 1
+                                                     ? budgets[row].generated_tokens_remaining - 1
+                                                     : 0;
++            // One mask per row describes one position only, and the sampler applies that same
++            // configuration to every column, so a draft column would be sampled against a grammar
++            // state it has already left behind. A constrained row therefore drafts nothing: its unit
++            // is the anchor alone, which is exactly the position the mask speaks for.
+             const std::uint32_t extent =
+-                std::min({sequence.mtp_draft_count, draft_window, max_by_budget,
+-                          capacity - sequence.execution_frontier - 1});
++                constraints[row].constrained
++                    ? 0U
++                    : std::min({sequence.mtp_draft_count, draft_window, max_by_budget,
++                                capacity - sequence.execution_frontier - 1});
+             mtp_host_ingress->anchors[row]        = sequence.ledger.back();
+             mtp_host_ingress->base_frontiers[row] = checked_i32(frontier, "MTP batch frontier");
+             mtp_host_ingress->remaining_budgets[row] =
+@@ -11945,7 +12000,9 @@ ProgramImplCore::decode_mtp_batch(std::span<const std::uint32_t> lanes,
+             mtp_host_ingress->state_source_slots[row]      = selectors.source;
+             mtp_host_ingress->state_destination_slots[row] = selectors.destination;
+             mtp_host_ingress->rope_deltas[row]             = sequence.rope_delta;
+-            mtp_host_ingress->sampling[row]                = request.sampling_host;
++            RequestControl& writable = requests[lanes[row]];
++            writable.sampling_host.token_mask = upload_token_mask(sequence, constraints[row]);
++            mtp_host_ingress->sampling[row] = writable.sampling_host;
+             ensure_sequence_kv_mapped(sequence, frontier + extent + 1,
+                                       std::min(capacity, frontier + extent + draft_window));
+         }
+@@ -12040,6 +12097,7 @@ ProgramImplCore::decode_mtp_batch(std::span<const std::uint32_t> lanes,
+ runtime::BatchedGeneratedRound
+ ProgramImplCore::decode_dflash_batch(std::span<const std::uint32_t> lanes,
+                                      std::span<const runtime::RoundBudget> budgets,
++                                     std::span<const runtime::RoundConstraint> constraints,
+                                      runtime::ExecutionTiming* failed_timing) {
+     nvtx::ScopedRange round_range(nvtx::Name::DecodeDFlashRound, nvtx::Category::DFlash,
+                                   static_cast<std::uint64_t>(lanes.size()));
+@@ -12116,8 +12174,12 @@ ProgramImplCore::decode_dflash_batch(std::span<const std::uint32_t> lanes,
+             const std::uint32_t max_by_budget = budgets[row].generated_tokens_remaining > 1
+                                                     ? budgets[row].generated_tokens_remaining - 1U
+                                                     : 0U;
++            // Same reasoning as the MTP loop: a constrained row's mask covers the anchor column only,
++            // so the unit is the anchor alone and no draft column is sampled against a stale state.
+             const std::uint32_t extent =
+-                std::min({draft_window, max_by_budget, capacity - frontier - 1U});
++                constraints[row].constrained
++                    ? 0U
++                    : std::min({draft_window, max_by_budget, capacity - frontier - 1U});
+             dflash_host_ingress->anchors[row] = sequence.ledger.back();
+             dflash_host_ingress->execution_frontiers[row] =
+                 checked_i32(frontier, "DFlash batch frontier");
+@@ -12139,7 +12201,9 @@ ProgramImplCore::decode_dflash_batch(std::span<const std::uint32_t> lanes,
+             const StateImageSelectors selectors          = state_selectors(sequence);
+             dflash_host_ingress->state_source_slots[row] = selectors.source;
+             dflash_host_ingress->state_destination_slots[row] = selectors.destination;
+-            dflash_host_ingress->sampling[row]                = request.sampling_host;
++            RequestControl& writable = requests[lanes[row]];
++            writable.sampling_host.token_mask = upload_token_mask(sequence, constraints[row]);
++            dflash_host_ingress->sampling[row] = writable.sampling_host;
+             ensure_sequence_kv_mapped(sequence, frontier + extent + 1U,
+                                       backend_kv_cache() ? frontier : 0U);
+         }
+@@ -12234,14 +12298,15 @@ ProgramImplCore::decode_dflash_batch(std::span<const std::uint32_t> lanes,
+ runtime::BatchedGeneratedRound
+ ProgramImplCore::decode_raw(std::span<const std::uint32_t> lanes,
+                             std::span<const runtime::RoundBudget> budgets,
++                            std::span<const runtime::RoundConstraint> constraints,
+                             runtime::ExecutionTiming* failed_timing) {
+     if (speculative_backend == SpeculativeBackend::None) {
+-        return decode_ordinary_batch(lanes, budgets, failed_timing);
++        return decode_ordinary_batch(lanes, budgets, constraints, failed_timing);
+     }
+     if (speculative_backend == SpeculativeBackend::Mtp) {
+-        return decode_mtp_batch(lanes, budgets, failed_timing);
++        return decode_mtp_batch(lanes, budgets, constraints, failed_timing);
+     }
+-    return decode_dflash_batch(lanes, budgets, failed_timing);
++    return decode_dflash_batch(lanes, budgets, constraints, failed_timing);
+ }
+ 
+ runtime::ExecutionTiming ProgramImplCore::resolve_non_speculative_pending(
+diff --git a/src/targets/qwen3_6_27b/impl/config.h b/src/targets/qwen3_6_27b/impl/config.h
+index f9b3f4e..33f7ab1 100644
+--- a/src/targets/qwen3_6_27b/impl/config.h
++++ b/src/targets/qwen3_6_27b/impl/config.h
+@@ -15,9 +15,10 @@ struct TextConfig {
+     static constexpr int layers       = 64;
+     static constexpr int intermediate = 17408;
+ 
+-    // The output matrix is padded for the selected kernels. Only token IDs in
+-    // [0, token_domain) are tokenizer-addressable and valid sampling results.
+-    static constexpr int output_rows  = 248320;
++    // Only token IDs in [0, token_domain) are tokenizer-addressable and valid sampling results.
++    // The pruned vocabulary fills its own row count exactly, so there is no padding tail: the
++    // ternary embedding reader requires padded_shape[0] == shape[0].
++    static constexpr int output_rows  = 208030;
+     static constexpr int token_domain = static_cast<int>(qwen3_6::kTokenDomain);
+ 
+     static constexpr int gdn_conv_kernel      = 4;
+@@ -89,7 +90,7 @@ struct DFlashConfig {
+     static constexpr int head_dim               = 128;
+     static constexpr int query_size             = 4096;
+     static constexpr int kv_size                = 1024;
+-    static constexpr int mask_token             = 248070;
++    static constexpr int mask_token             = 208023;  // <|audio_start|>, renumbered
+     static constexpr float rms_epsilon          = 1.0e-6F;
+     static constexpr float rope_theta           = 1.0e7F;
+     static constexpr float attention_scale      = 0.08838834764831845F;
+diff --git a/src/targets/qwen3_6_27b/impl/load/bindings.cpp b/src/targets/qwen3_6_27b/impl/load/bindings.cpp
+index 49570c2..53fa1be 100644
+--- a/src/targets/qwen3_6_27b/impl/load/bindings.cpp
++++ b/src/targets/qwen3_6_27b/impl/load/bindings.cpp
+@@ -578,7 +578,7 @@ DFlash2Plan bind_dflash2(artifact::Binder& binder, artifact::TensorPlacement pla
+ 
+ void validate_draft_ids(const artifact::Binder& binder, artifact::ObjectHandle handle) {
+     constexpr std::size_t kDraftVocab     = 131072;
+-    constexpr std::size_t kTokenizerVocab = 248077;
++    constexpr std::size_t kTokenizerVocab = 208030;
+     const auto bytes                      = binder.payload(handle).data;
+     std::vector<bool> seen(kTokenizerVocab, false);
+     for (std::size_t i = 0; i < kDraftVocab; ++i) {
+@@ -609,7 +609,7 @@ ArtifactLoadPlan bind_artifact(artifact::Binder& binder, WeightsProfile weights_
+ 
+     const NumericFormat vocabulary_format = endpoint_format(weights_profile);
+     out.token_embedding =
+-        bind_weight(binder, "text/token_embedding", vocabulary_format, {248320, 5120});
++        bind_weight(binder, "text/token_embedding", vocabulary_format, {208030, 5120});
+     switch (weights_profile) {
+     case WeightsProfile::Qwen36GroupwiseInt:
+     case WeightsProfile::Qwen38GroupwiseInt:
+@@ -626,7 +626,7 @@ ArtifactLoadPlan bind_artifact(artifact::Binder& binder, WeightsProfile weights_
+     }
+     out.final_norm =
+         artifact::bind_device_tensor(binder, "text/final_norm", NumericFormat::BF16, {5120});
+-    out.output_head = bind_weight(binder, "text/output_head", vocabulary_format, {248320, 5120});
++    out.output_head = bind_weight(binder, "text/output_head", vocabulary_format, {208030, 5120});
+     out.hadamard_signs = bind_hadamard_signs(binder);
+     const artifact::TensorPlacement proposal_placement =
+         features.optimized_proposal() ? artifact::TensorPlacement::Device
+@@ -743,7 +743,7 @@ LoadedModelData::LoadedModelData(BindingPlan plan, artifact::MaterializedArtifac
+     auto& final_norm      = runtime.final_norm;
+     auto& output_head     = runtime.output_head;
+ 
+-    token_embedding        = materialized_weight(backing, plan.token_embedding, 248320, 5120);
++    token_embedding        = materialized_weight(backing, plan.token_embedding, 208030, 5120);
+     std::size_t full_index = 0;
+     std::size_t gdn_index  = 0;
+     for (std::size_t layer = 0; layer < kTextLayers; ++layer) {
+@@ -786,7 +786,7 @@ LoadedModelData::LoadedModelData(BindingPlan plan, artifact::MaterializedArtifac
+     }
+     final_norm =
+         artifact::materialized_tensor(backing, plan.final_norm, NumericFormat::BF16, {5120});
+-    output_head = materialized_weight(backing, plan.output_head, 248320, 5120);
++    output_head = materialized_weight(backing, plan.output_head, 208030, 5120);
+     if (plan.features.optimized_proposal()) {
+         auto& proposal     = runtime.optimized_proposal.emplace();
+         proposal.head      = artifact::materialized_weight(backing, plan.draft_head,
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index bbd4dae..42d9b07 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -64,15 +64,23 @@ ninfer_add_test(ninfer_media_decode_test
+ ninfer_add_test(ninfer_prompt_input_test
+   SOURCES test_prompt_input.cpp
+   LIBRARIES ninfer_product_prompt_input)
+-ninfer_add_test(ninfer_pretty_logging_test
+-  SOURCES test_pretty_logging.cpp
+-  LIBRARIES ninfer_product_logging)
++# The three cases below include <unistd.h> and exercise POSIX terminal/pid behaviour, so they do not
++# compile with MSVC. Registering them only on a POSIX host keeps a Windows configure+test run
++# meaningful instead of failing at the first POSIX header; the coverage they provide is unchanged
++# where they can build.
++if(NOT WIN32)
++  ninfer_add_test(ninfer_pretty_logging_test
++    SOURCES test_pretty_logging.cpp
++    LIBRARIES ninfer_product_logging)
++endif()
+ ninfer_add_test(ninfer_device_test       SOURCES test_device.cpp)
+ ninfer_add_test(ninfer_decode_graph_test SOURCES test_decode_graph.cpp)
+ ninfer_add_test(ninfer_tensor_test       SOURCES test_tensor.cpp)
+ ninfer_add_test(ninfer_arena_test        SOURCES test_arena.cpp)
+ ninfer_add_test(ninfer_admission_policy_test SOURCES test_admission_policy.cpp)
+-ninfer_add_test(ninfer_context_cost_test SOURCES test_context_cost.cpp)
++if(NOT WIN32)
++  ninfer_add_test(ninfer_context_cost_test SOURCES test_context_cost.cpp)
++endif()
+ ninfer_add_test(ninfer_resource_manager_test SOURCES test_resource_manager.cpp)
+ ninfer_add_test(ninfer_kv_capacity_test SOURCES test_kv_capacity.cpp)
+ ninfer_add_test(ninfer_sampling_defaults_test
+@@ -187,6 +195,21 @@ target_link_libraries(ninfer_qwen3_6_35b_a3b_dflash_load_plan_test PRIVATE CUDA:
+ set_tests_properties(ninfer_qwen3_6_35b_a3b_dflash_load_plan_test
+   PROPERTIES SKIP_RETURN_CODE 77)
+ 
++# Schema-constrained decoding: the model-independent constraint kernel. These link ninfer_text
++# rather than ninfer_core so they stay runnable without a GPU or a model artifact.
++ninfer_add_test(ninfer_json_schema_test
++  SOURCES test_json_schema.cpp
++  LIBRARIES ninfer_text)
++ninfer_add_test(ninfer_regex_engine_test
++  SOURCES test_regex_engine.cpp
++  LIBRARIES ninfer_text)
++ninfer_add_test(ninfer_json_grammar_test
++  SOURCES test_json_grammar.cpp
++  LIBRARIES ninfer_text)
++ninfer_add_test(ninfer_json_grammar_deadend_test
++  SOURCES test_json_grammar_deadend.cpp
++  LIBRARIES ninfer_text)
++
+ # Product protocol contracts.
+ ninfer_add_test(ninfer_openai_schema_test
+   SOURCES test_openai_schema.cpp
+@@ -206,9 +229,11 @@ ninfer_add_test(ninfer_tool_call_parser_test
+ ninfer_add_test(ninfer_serve_options_test
+   SOURCES test_serve_options.cpp
+   LIBRARIES ninfer_serve)
+-ninfer_add_test(ninfer_request_log_test
+-  SOURCES test_request_log.cpp
+-  LIBRARIES ninfer_serve)
++if(NOT WIN32)
++  ninfer_add_test(ninfer_request_log_test
++    SOURCES test_request_log.cpp
++    LIBRARIES ninfer_serve)
++endif()
+ ninfer_add_test(ninfer_host_timing_test
+   SOURCES test_host_timing.cpp
+   LIBRARIES ninfer_core)
+@@ -259,6 +284,7 @@ set(ninfer_op_tests
+   rope
+   vision_pos_embed
+   sampling
++  sampling_mask
+   scalar
+   cast
+   prepare_ragged_prefix
+diff --git a/tests/test_anthropic_schema.cpp b/tests/test_anthropic_schema.cpp
+index 98ffdc1..8c82160 100644
+--- a/tests/test_anthropic_schema.cpp
++++ b/tests/test_anthropic_schema.cpp
+@@ -142,10 +142,20 @@ int test_envelope_and_field_policy() {
+     body["top_k"] = 21;
+     failures += check(api_param([&] { (void)parse(body); }) == "top_k",
+                       "Engine top_k range was not enforced");
++    // Structured output is lowered into the constraint the engine carries, so what is asserted is
++    // the schema reaching the request; a format the engine cannot express is still rejected.
+     body                  = base_request();
+-    body["output_config"] = Json{{"format", Json{{"type", "json_schema"}}}};
++    body["output_config"] = Json{{"format", Json{{"type", "json_schema"},
++                                                 {"schema", Json{{"type", "object"}}}}}};
++    {
++        const auto parsed = parse(body);
++        failures += check(parsed.generation.structured_output_schema.has_value(),
++                          "output_config.format json_schema lowers to a constraint");
++    }
++    body                  = base_request();
++    body["output_config"] = Json{{"format", Json{{"type", "grammar"}}}};
+     failures += check(api_code([&] { (void)parse(body); }) == "output_config_format_not_supported",
+-                      "structured output was silently downgraded");
++                      "an unsupported output_config.format is rejected explicitly");
+     body              = base_request();
+     body["container"] = "container_1";
+     failures += check(api_code([&] { (void)parse(body); }) == "container_not_supported",
+@@ -393,8 +403,14 @@ int test_tools() {
+                          "Anthropic tool schema/examples did not reach the Qwen prompt");
+ 
+     body["tools"] = Json::array({ordinary_tool(true)});
+-    failures += check(api_code([&] { (void)parse(body); }) == "strict_tools_not_supported",
+-                      "active strict tool was accepted without constrained decoding");
++    // An active strict tool is accepted, and its declared shape travels with the request so the
++    // Frontend can constrain the arguments of the call that names it.
++    {
++        const auto parsed = parse(body);
++        failures += check(parsed.generation.tool_argument_schemas.size() == 1 &&
++                              parsed.generation.tool_argument_schemas.front().name == "weather",
++                          "an active strict tool carries its name and schema");
++    }
+     body["tool_choice"]               = Json{{"type", "none"}, {"disable_parallel_tool_use", true}};
+     body["tools"][0]["defer_loading"] = true;
+     body["tools"][0]["allowed_callers"] = Json::array({"code_execution"});
+diff --git a/tests/test_openai_responses.cpp b/tests/test_openai_responses.cpp
+index 01a3295..ba14647 100644
+--- a/tests/test_openai_responses.cpp
++++ b/tests/test_openai_responses.cpp
+@@ -717,17 +717,32 @@ int test_explicit_rejections() {
+ 
+     Json value     = base;
+     value["tools"] = Json::array({Json{{"type", "function"}, {"name", "f"}, {"strict", true}}});
+-    failures += check(api_code([&] {
+-                          (void)parse_openai_responses_create_request(value, limits());
+-                      }) == "strict_tools_not_supported",
+-                      "strict function schema is rejected explicitly");
++    // A `strict` function is accepted, and its declared shape travels with the request so the
++    // Frontend can constrain the arguments of the call that names it.
++    {
++        const auto parsed = parse_openai_responses_create_request(value, limits());
++        failures += check(parsed.prompt.generation.tool_argument_schemas.size() == 1 &&
++                              parsed.prompt.generation.tool_argument_schemas.front().name == "f",
++                          "a strict function carries its name and schema");
++    }
++
++    // Structured output is lowered rather than rejected, so the assertion is that the schema reaches
++    // the request; a malformed format is still a clean rejection.
++    value         = base;
++    value["text"] = Json{{"format", Json{{"type", "json_schema"},
++                                         {"schema", Json{{"type", "object"}}}}}};
++    {
++        const auto parsed = parse_openai_responses_create_request(value, limits());
++        failures += check(parsed.prompt.generation.structured_output_schema.has_value(),
++                          "text.format json_schema lowers to a constraint");
++    }
+ 
+     value         = base;
+     value["text"] = Json{{"format", Json{{"type", "json_schema"}}}};
+     failures += check(api_code([&] {
+                           (void)parse_openai_responses_create_request(value, limits());
+-                      }) == "structured_outputs_not_supported",
+-                      "structured output is rejected explicitly");
++                      }) == "json_schema_invalid",
++                      "a json_schema format without a schema is rejected");
+ 
+     value               = base;
+     value["background"] = true;
+diff --git a/tests/test_openai_schema.cpp b/tests/test_openai_schema.cpp
+index c437823..04663b4 100644
+--- a/tests/test_openai_schema.cpp
++++ b/tests/test_openai_schema.cpp
+@@ -148,7 +148,7 @@ int test_standard_field_policy() {
+     rejected("logit_bias", Json{{"12", 1}}, "logit_bias_not_supported");
+     rejected("logprobs", true, "logprobs_not_supported");
+     rejected("top_logprobs", 2, "logprobs_not_supported");
+-    rejected("response_format", Json{{"type", "json_schema"}}, "response_format_not_supported");
++    rejected("response_format", Json{{"type", "grammar"}}, "response_format_not_supported");
+     rejected("modalities", Json::array({"text", "audio"}), "modality_not_supported");
+     rejected("web_search_options", Json::object(), "web_search_not_supported");
+     rejected("moderation", Json::object(), "moderation_not_supported");
+@@ -180,6 +180,54 @@ int test_standard_field_policy() {
+     failures += check(parse(neutral).generation.messages.size() == 1,
+                       "neutral controls and advisory hints are accepted");
+ 
++    // Structured output is lowered into the wire-independent constraint the engine carries, so the
++    // assertion is on the schema reaching GenerationRequest rather than on the request surviving.
++    {
++        Json any_object              = base_request();
++        any_object["response_format"] = Json{{"type", "json_object"}};
++        const OpenAIChatRequest parsed = parse(any_object);
++        failures += check(parsed.generation.structured_output_schema.has_value() &&
++                              *parsed.generation.structured_output_schema == R"({"type":"object"})",
++                          "response_format json_object lowers to the any-object schema");
++
++        Json declared = base_request();
++        declared["response_format"] =
++            Json{{"type", "json_schema"},
++                 {"json_schema",
++                  Json{{"name", "session_title"},
++                       {"strict", true},
++                       {"schema",
++                        Json{{"type", "object"},
++                             {"properties", Json{{"title", Json{{"type", "string"}}}}},
++                             {"required", Json::array({"title"})},
++                             {"additionalProperties", false}}}}}};
++        const OpenAIChatRequest with_schema = parse(declared);
++        failures += check(with_schema.generation.structured_output_schema.has_value(),
++                          "response_format json_schema lowers to a constraint");
++        if (with_schema.generation.structured_output_schema) {
++            // The schema is carried verbatim so the frontend can cache it by text.
++            failures += check(
++                with_schema.generation.structured_output_schema->find("\"title\"") !=
++                    std::string::npos,
++                "the declared schema reaches the engine verbatim");
++        }
++
++        // A schema the engine cannot enforce is the client's 400, not an engine failure later.
++        Json unusable               = base_request();
++        unusable["response_format"] = Json{
++            {"type", "json_schema"},
++            {"json_schema", Json{{"schema", Json{{"type", "strng"}}}}}};
++        const ApiError error = api_error([&] { (void)parse(unusable); });
++        failures += check(error.code == "json_schema_invalid",
++                          "an unenforceable schema is rejected at parse time");
++
++        // A plain text response_format stays unconstrained, so the field must remain absent.
++        Json plain              = base_request();
++        plain["response_format"] = Json{{"type", "text"}};
++        failures += check(!parse(plain).generation.structured_output_schema.has_value(),
++                          "response_format text leaves the request unconstrained");
++    }
++
+     Json zero_limit                     = base_request();
+     zero_limit["max_completion_tokens"] = 0;
+     const OpenAIChatRequest zero        = parse(zero_limit);
+@@ -290,8 +338,16 @@ int test_tools() {
+ 
+     body          = base_request();
+     body["tools"] = Json::array({function_tool("weather", true)});
+-    failures += check(api_error([&] { (void)parse(body); }).code == "strict_tools_not_supported",
+-                      "strict tools rejected");
++    // A `strict` tool is accepted, and its declared shape travels with the request so the Frontend
++    // can constrain the arguments of the call that names it.
++    {
++        const auto parsed = parse(body);
++        failures += check(parsed.generation.tool_argument_schemas.size() == 1 &&
++                              parsed.generation.tool_argument_schemas.front().name == "weather" &&
++                              parsed.generation.tool_argument_schemas.front().schema ==
++                                  R"({"type":"object"})",
++                          "a strict tool carries its name and its declared schema");
++    }
+     body["tools"] = Json::array({Json{{"type", "custom"}, {"name", "shell"}}});
+     failures += check(api_error([&] { (void)parse(body); }).code == "tool_type_not_supported",
+                       "custom tools rejected");
