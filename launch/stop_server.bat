@@ -1,6 +1,6 @@
 @echo off
 setlocal
-rem 停止 NInfer 服务并确认显存回落（回到 ~1 GB 基线才算干净）
+rem Stop the NInfer server and confirm VRAM is released (back to ~1 GB baseline).
 taskkill /IM ninfer-serve.exe /F >nul 2>&1
 if errorlevel 1 (
   echo no ninfer-serve.exe was running.

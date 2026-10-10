@@ -1,7 +1,7 @@
 @echo off
 setlocal
-rem 后台起服务（日志写文件，不开控制台窗口）——脚本化时用。
-rem 停止：launch\stop_server.bat
+rem Start the server in the background (log to a file, no console window).
+rem Stop with stop_server.bat
 set "ROOT=%~dp0.."
 set "MODELID=%~1"
 if "%MODELID%"=="" set "MODELID=swift-bonsai2-27b"
@@ -11,7 +11,6 @@ if /i "%MODELID%"=="swift-bonsai2-27b" (
   set "ARTIFACT=%ROOT%\artifacts\bonsai2-27b-pruned.ninfer"
 )
 set "LOG=%ROOT%\logs\serve-%MODELID%.log"
-
 "%ROOT%\build\b1\apps\ninfer-serve.exe" "%ARTIFACT%" ^
   --host 127.0.0.1 --port 8080 --model-id %MODELID% ^
   --max-context 262144 --kv-capacity 262144 --kv-dtype nvfp4 ^
