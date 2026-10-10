@@ -38,7 +38,8 @@
 
 | 包 | 内容 | 体积 |
 |---|---|---|
-| ★ **`ninfer-swift-bonsai2-complete-v1.0.0.zip.001..005`** | **完整包**：引擎 exe×3 + FFmpeg/VC 运行库 DLL + **已裁剪模型**（直接可服务）+ 词表剪切器 + 启动脚本。**解压 → 双击 `launch\launch_windows.bat` 即用**（CUDA 已静态链接，无需装 CUDA）| ~6.9 GB（5 卷分卷 zip）|
+| ★ **`ninfer-swift-bonsai2-complete-v1.0.0-single.zip`**（[Hugging Face 单文件镜像](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port)，免分卷）| **完整包**：引擎 exe×3 + FFmpeg/VC 运行库 DLL + **已裁剪模型**（直接可服务）+ 词表剪切器 + 启动脚本。**解压 → 双击 `launch\launch_windows.bat` 即用**（CUDA 已静态链接，无需装 CUDA）| 6.85 GiB |
+| ★ **`ninfer-swift-bonsai2-complete-v1.0.0.zip.001..005`**（GitHub 分卷版，同一内容）| 同上 | ~6.9 GB（5 卷分卷 zip）|
 | `ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | **完整 C++ 引擎源码**（基树 `ad6cb46` + 本仓补丁）—— 同一份源码也在本仓 `src/cranebw/` | 11 MB |
 | `swift-bonsai2-27b-unpruned-v1.0.0.zip.001..004` | （可选）**未裁剪制品** + 剪切器 + 自包含容器库——只有想自己重跑裁剪/用未打补丁引擎时才需要 | 6.5 GB |
 
