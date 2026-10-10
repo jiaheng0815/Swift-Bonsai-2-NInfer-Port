@@ -38,7 +38,7 @@
 
 | 包 | 内容 | 体积 |
 |---|---|---|
-| `swift-bonsai2-27b-unpruned-v1.0.0.zip.001..005` | **未裁剪制品**（7.736 GiB）+ **词表剪切器** + 包内说明/校验（分卷 zip，需全部下载后解压）| ~8.3 GB |
+| `swift-bonsai2-27b-unpruned-v1.0.0.zip.001..004` | **未裁剪制品**（7.736 GiB）+ **词表剪切器** + 包内说明/校验（分卷 zip，需全部下载后用 7-Zip 打开 `.001` 解压）| 6.5 GiB |
 | `ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | **完整 C++ 引擎源码**（基树 `ad6cb46` + 本仓补丁，可直接构建）| 11 MB |
 
 > 只要 tools + patch 的话，本仓 `engine/` 与 `conversion/` 已经够用；
