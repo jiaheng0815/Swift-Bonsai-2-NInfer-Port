@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import os
 import argparse
 import collections
 import json
@@ -17,7 +18,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO_SRC = Path(r"D:\ai-ninfer\src\cranebw")
+REPO_SRC = Path(os.environ.get("NINFER_SRC") or r"D:\ai-ninfer\src\cranebw")
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 

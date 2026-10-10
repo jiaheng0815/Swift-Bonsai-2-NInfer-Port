@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 import argparse
 import gc
 import json
@@ -21,7 +22,7 @@ import random
 import sys
 from pathlib import Path
 
-REPO_SRC = Path(r"D:\ai-ninfer\src\cranebw")
+REPO_SRC = Path(os.environ.get("NINFER_SRC") or r"D:\ai-ninfer\src\cranebw")
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
