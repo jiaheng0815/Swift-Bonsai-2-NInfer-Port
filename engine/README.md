@@ -1,11 +1,12 @@
 # engine — NInfer 引擎的改动说明
 
-> 本目录含**本项目的改动**：`patches/ninfer-bonsai2-port.patch`（针对基树的完整 diff）、
-> `stat.txt`（改动清单）与构建脚本。
+> **完整引擎源码就在本仓库里： [`src/cranebw/`](../src/cranebw/)**（1449 文件 / 29.6 MB，
+> 基树 `ad6cb46` + 本补丁已套用，可直接构建）—— 基树上游曾下线过一次（Ambolio 404），
+> 所以这里做完整 vendoring。
 >
-> **完整引擎源码**（基树 + 已套用本补丁）作为 Release asset 提供：
-> [`ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip`](https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port/releases/tag/v1.0.0)
-> （11 MB）—— 基树上游曾下线过一次（Ambolio 404），这份完整拷贝保证任何时候都能从零构建。
+> 本目录另存**改动记录**：`patches/ninfer-bonsai2-port.patch`（相对基树的完整 diff）、
+> `stat.txt`（改动清单）与 Windows 构建脚本 `build_windows.bat`。
+> Release 里也有同一份源码的 zip（含 `README-BUILD.txt`），供不做 git clone 的场景。
 
 ## 基树
 

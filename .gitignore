@@ -8,9 +8,19 @@
 artifacts/*
 !artifacts/README.md
 
-# ---- 第三方源码树（各自仓库另行获取）----
-src/
+# ---- 第三方参考副本（各自仓库另行获取）----
 guide/
+src/mengyou/
+src/yutils/
+
+# ---- 引擎树里不入库的部分 ----
+# （说明：gitignore 的 # 注释必须独占一行，不能写在规则后面）
+src/cranebw/.git/
+src/cranebw/.codex/
+# 指向本机 FFmpeg 的目录联接（258 MB，仅视觉/视频需要）
+src/cranebw/ffmpeg/
+# 36 MB 二进制测试夹具（构建不需要，可另行生成）
+src/cranebw/tools/freq_corpus/fixtures/
 
 # ---- 编译产物与本地文件 ----
 build/

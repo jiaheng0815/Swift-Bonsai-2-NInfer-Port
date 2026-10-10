@@ -69,8 +69,9 @@ api_key 随便填（本机未开鉴权）。**思维链在 `reasoning_content` �
 
 ```
 README.md  LICENSE  NOTICE  .gitignore
+src/cranebw/    ★ 完整引擎源码（基树 ad6cb46 + 本仓补丁，1449 文件；可直接构建）
 conversion/     制品转换与验证：词表裁剪 / 逐字节重建 / 全套验证脚本 / 下载器
-engine/         引擎改动说明 + patch（相对 CraneBW 基树 ad6cb46）
+engine/         引擎改动说明 + patch（相对基树的 diff）+ 构建脚本
 launch/         启动脚本（Windows .bat / Linux .sh 模板）+ 聊天客户端 + PPL
 bench/          性能与思考 token 基准（可复跑）
 tests/          端到端验证（结构化输出 / strict 工具）
