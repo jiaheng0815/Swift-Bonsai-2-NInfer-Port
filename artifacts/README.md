@@ -3,11 +3,11 @@
 本目录在 **发布时为空**（`.gitignore` 排除）：`.ninfer` 制品与 GGUF 权重都**不入库**
 （体积 + 版权归原作者）。
 
-> **下载**：**未裁剪**的 Swift 制品（`swift-bonsai2-27b.ninfer`，7.736 GiB）连同
-> **词表剪切器**打包成 zip 分卷，放在
-> [Release v1.0.0](https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port/releases/tag/v1.0.0)
-> 的 Assets 里，包内含 `README.txt`（用法）与 `SHA256SUMS.txt`（校验）。
-> 解压后按包内说明跑剪切器 → 得到引擎可直接加载的 208,030 域制品。
+> **下载**：全部发布物在
+> [Hugging Face · jiaheng0815/Swift-Bonsai-2-NInfer-Port](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port)：
+> **完整包**（引擎 + 已裁剪模型 + 剪切器，6.85 GiB 单文件）与**未裁剪制品包**
+> （`swift-bonsai2-27b.ninfer` 7.736 GiB + 剪切器，6.35 GiB 单文件）。
+> 包内含 `README.txt`（用法）与 `SHA256SUMS.txt`（校验）。
 
 ## 本机实际产物（本地路径）
 

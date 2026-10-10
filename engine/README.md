@@ -6,7 +6,8 @@
 >
 > 本目录另存**改动记录**：`patches/ninfer-bonsai2-port.patch`（相对基树的完整 diff）、
 > `stat.txt`（改动清单）与 Windows 构建脚本 `build_windows.bat`。
-> Release 里也有同一份源码的 zip（含 `README-BUILD.txt`），供不做 git clone 的场景。
+> [Hugging Face](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port) 的
+> `engine/` 目录也有同一份源码的 zip（含 `README-BUILD.txt`），供不做 git clone 的场景。
 
 ## 基树
 

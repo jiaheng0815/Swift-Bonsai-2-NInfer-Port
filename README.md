@@ -5,8 +5,9 @@
 > **词表裁剪**（248,320 → 208,030，中英文零损失）与**逐字节验证**工具链。
 >
 > 实测环境：**Windows 11 · RTX 5060 Ti 16 GB（Blackwell `sm_120a`）**。
-> 权重不随仓库分发；**未裁剪的 `.ninfer` 制品（配词表剪切器）随
-> [Release v1.0.0](../../releases/tag/v1.0.0) 提供**，由官方 Apache-2.0 权重本地打包。
+> 权重不随仓库分发；**完整运行时包（引擎 + 已裁剪模型 + 剪切器）在
+> [Hugging Face](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port) 提供**，
+> 由官方 Apache-2.0 权重本地打包。
 
 ---
 
@@ -34,19 +35,18 @@
 | 工具链 | VS Build Tools 2022 + **CUDA 13.3** + CMake + Ninja |
 | Python | 3.10+（numpy、tokenizers；见 `conversion/requirements.txt`）|
 
-## 下载（Release assets）
+## 下载（Hugging Face）
 
-| 包 | 内容 | 体积 |
+**https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port**
+
+| 文件 | 内容 | 体积 |
 |---|---|---|
-| ★ **`ninfer-swift-bonsai2-complete-v1.0.0-single.zip`**（[Hugging Face 单文件镜像](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port)，免分卷）| **完整包**：引擎 exe×3 + FFmpeg/VC 运行库 DLL + **已裁剪模型**（直接可服务）+ 词表剪切器 + 启动脚本。**解压 → 双击 `launch\launch_windows.bat` 即用**（CUDA 已静态链接，无需装 CUDA）| 6.85 GiB |
-| ★ **`ninfer-swift-bonsai2-complete-v1.0.0.zip.001..005`**（GitHub 分卷版，同一内容）| 同上 | ~6.9 GB（5 卷分卷 zip）|
-| `ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | **完整 C++ 引擎源码**（基树 `ad6cb46` + 本仓补丁）—— 同一份源码也在本仓 `src/cranebw/` | 11 MB |
-| `swift-bonsai2-27b-unpruned-v1.0.0.zip.001..004` | （可选）**未裁剪制品** + 剪切器 + 自包含容器库——只有想自己重跑裁剪/用未打补丁引擎时才需要 | 6.5 GB |
+| ★ **`ninfer-swift-bonsai2-complete-v1.0.0-single.zip`** | **完整包（单文件，免分卷）**：引擎 exe×3 + FFmpeg/VC 运行库 DLL + **已裁剪模型**（直接可服务）+ 词表剪切器 + 启动脚本。**解压 → 双击 `launch\launch_windows.bat` 即用**（CUDA 已静态链接，无需装 CUDA）| 6.85 GiB |
+| `swift-bonsai2-27b-unpruned-v1.0.0-single.zip` | （可选）**未裁剪制品** + 剪切器 + 自包含容器库——只有想自己重跑裁剪 / 用未打补丁引擎时才需要 | 6.35 GiB |
+| `engine/ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | **完整 C++ 引擎源码**（基树 `ad6cb46` + 本仓补丁）—— 同一份源码也在本仓 `src/cranebw/` | 11 MB |
 
-> 分卷 zip 用 7-Zip 打开 `.001` 解压；全部资产校验见 `SHA256SUMS-parts.txt`。
-
-> 只要 tools + patch 的话，本仓 `engine/` 与 `conversion/` 已经够用；
-> 上面两个包是给"不想自己 clone/pack"的场景准备的。
+> 只要 tools + patch 的话，本仓 `src/`、`engine/` 与 `conversion/` 已经够用；
+> 上面这些包是给"不想自己 clone/pack"的场景准备的。
 
 ## 快速开始
 
