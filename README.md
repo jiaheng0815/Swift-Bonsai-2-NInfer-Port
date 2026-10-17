@@ -58,8 +58,8 @@
 
 | 文件 | 内容 | 体积 |
 |---|---|---|
-| ★ **`ninfer-swift-bonsai2-complete-v1.0.0-single.zip`** | **完整包（单文件，免分卷）**：引擎 exe×3 + FFmpeg/VC 运行库 DLL + **已裁剪模型**（直接可服务）+ 词表剪切器 + 启动脚本。**解压 → 双击 `launch\launch_windows.bat` 即用**（CUDA 已静态链接，无需装 CUDA）| 6.85 GiB |
-| `swift-bonsai2-27b-unpruned-v1.0.0-single.zip` | （可选）**未裁剪制品** + 剪切器 + 自包含容器库——只有想自己重跑裁剪 / 用未打补丁引擎时才需要 | 6.35 GiB |
+| ★ **`ninfer-swift-bonsai2-complete-v1.0.0-single.zip`** | **完整包（单文件，免分卷）**：引擎 exe×3 + FFmpeg/VC 运行库 DLL + **已裁剪模型**（直接可服务）+ 词表剪切器 + 启动脚本。**解压 → 双击 `launch\launch_windows.bat` 即用**（CUDA 已静态链接，无需装 CUDA）| 6.78 GiB |
+| `swift-bonsai2-27b-unpruned-v1.0.0-single.zip` | （可选）**未裁剪制品** + 剪切器 + 自包含容器库——只有想自己重跑裁剪 / 用未打补丁引擎时才需要 | 6.28 GiB |
 | `engine/ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | **完整 C++ 引擎源码**（基树 `ad6cb46` + 本仓补丁）—— 同一份源码也在本仓 `src/cranebw/` | 11 MB |
 | `SHA256SUMS.txt` | 上面三个 zip 的校验和（`sha256sum -c` / `certutil -hashfile`）| 1 KB |
 

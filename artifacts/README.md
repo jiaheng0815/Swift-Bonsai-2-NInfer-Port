@@ -10,8 +10,8 @@
 >
 > | 文件 | 内容 | 体积 |
 > |---|---|---|
-> | `ninfer-swift-bonsai2-complete-v1.0.0-single.zip` | **完整包**：引擎 exe + DLL + 已裁剪模型 + 剪切器 + 启动脚本 | 6.85 GiB |
-> | `swift-bonsai2-27b-unpruned-v1.0.0-single.zip` | **未裁剪制品** + 剪切器 + 自包含容器库 | 6.35 GiB |
+> | `ninfer-swift-bonsai2-complete-v1.0.0-single.zip` | **完整包**：引擎 exe + DLL + 已裁剪模型 + 剪切器 + 启动脚本 | 6.78 GiB |
+> | `swift-bonsai2-27b-unpruned-v1.0.0-single.zip` | **未裁剪制品** + 剪切器 + 自包含容器库 | 6.28 GiB |
 > | `engine/ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | 完整 C++ 引擎源码 | 11 MB |
 >
 > 包内含 `README.txt`（用法）与 `SHA256SUMS.txt`（校验）。
