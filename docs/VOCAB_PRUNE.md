@@ -124,7 +124,7 @@ ALL CHECKS PASSED
 ## 8. 复现（四步）
 
 ```powershell
-cd D:\ai-ninfer
+cd <repo>        # 本仓根目录（示例 D:\ai-ninfer）
 
 # ① 分类裁剪（只读制品，产出 4 个文件到 artifacts\pruned）
 python conversion\prune_vocab.py --artifact artifacts\swift-bonsai2-27b.ninfer --out-dir artifacts\pruned

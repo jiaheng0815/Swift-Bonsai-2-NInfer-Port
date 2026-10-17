@@ -19,14 +19,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO_SRC = Path(os.environ.get("NINFER_SRC") or r"D:\ai-ninfer\src\cranebw")
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_SRC = Path(os.environ.get("NINFER_SRC") or _REPO_ROOT / "src" / "cranebw")
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
 from tools.artifact.container import Artifact  # noqa: E402
 from tokenizers import Tokenizer  # noqa: E402
 
-CORPORA_ROOT = Path(r"D:\ai-ninfer\src\cranebw\eval\corpora\perplexity-1m\data")
+CORPORA_ROOT = Path(os.environ.get("NINFER_CORPORA") or REPO_SRC / "eval" / "corpora" / "perplexity-1m" / "data")
 CORPORA = {
     "zhwiki (中文维基)": "zhwiki",
     "wikitext (英文维基)": "wikitext",
@@ -47,8 +48,8 @@ def load_original(artifact_path: Path) -> Tokenizer:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--artifact", type=Path, default=Path(r"D:\ai-ninfer\artifacts\bonsai2-27b.ninfer"))
-    parser.add_argument("--pruned", type=Path, default=Path(r"D:\ai-ninfer\artifacts\pruned"))
+    parser.add_argument("--artifact", type=Path, default=_REPO_ROOT / "artifacts" / "bonsai2-27b.ninfer")
+    parser.add_argument("--pruned", type=Path, default=_REPO_ROOT / "artifacts" / "pruned")
     args = parser.parse_args()
 
     remap = {

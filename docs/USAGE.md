@@ -41,6 +41,7 @@
 
 ```powershell
 ninfer-server -m D:\ai-ninfer\artifacts\swift-bonsai2-27b-pruned.ninfer -c 262144 -ctk q4_0 -ctv q4_0 --parallel 1
+# 把 D:\ai-ninfer 换成你的仓库根目录（完整包则换成 <解压目录>\models\...）
 ```
 
 `-ctk/-ctv` 映射：`q4_0/q5_0/q5_1/iq4_nl → nvfp4`、`q8_0/q8_1 → int8`、`f16/bf16 → bf16`、`fp8 → fp8`。
@@ -195,9 +196,10 @@ guide\                魔搭指南原仓（第三方，pack.py / tools\verify；
 **把 exe / 启动器加进 PATH（可选）**：在 PowerShell 里执行一次（用户级，永久）：
 
 ```powershell
+$Repo = 'D:\ai-ninfer'        # 换成你的仓库根目录
 [Environment]::SetEnvironmentVariable(
   'Path',
-  [Environment]::GetEnvironmentVariable('Path','User') + ';D:\ai-ninfer\build\b1\apps;D:\ai-ninfer\bin',
+  [Environment]::GetEnvironmentVariable('Path','User') + ";$Repo\build\b1\apps;$Repo\bin",
   'User')
 ```
 

@@ -64,13 +64,14 @@ no adapter file, patch, or extra flag is needed*），文件布局与基座完�
    打包器仍用第 1 步的 `pack.py`（包内 `README.txt` 有完整步骤）。
 
 ```powershell
-# 例：从未裁剪包解压出的目录运行（Windows）
+# 例：Windows；%REPO% 是本仓根目录
+set REPO=D:\ai-ninfer
 set NINFER_SRC=%CD%\ninfer-tools
 set PACK=path\to\pack.py
 
-python %PACK% check --gguf <Swift.gguf> --template D:\ai-ninfer\models\template\model.ninfer
-python %PACK% build D:\ai-ninfer\artifacts\swift-bonsai2-27b.ninfer `
-  --gguf <Swift.gguf> --template D:\ai-ninfer\models\template\model.ninfer
+python %PACK% check --gguf <Swift.gguf> --template "%REPO%\models\template\model.ninfer"
+python %PACK% build "%REPO%\artifacts\swift-bonsai2-27b.ninfer" `
+  --gguf <Swift.gguf> --template "%REPO%\models\template\model.ninfer"
 ```
 
 产物与基线逐字节同构：**8,306,927,628 B = 7.736 GiB、1126 对象、文本 6.696 GiB、

@@ -33,14 +33,16 @@
 **从官方 GGUF 自己打**（推荐，全程可复现）：
 
 ```powershell
+$REPO = "D:\ai-ninfer"        # 本仓根目录
+
 # 0. 下载权重（官方渠道；大文件走代理直连，见 conversion\parallel_dl.py）
 python conversion\parallel_dl.py --url <官方GGUF地址> --out E:\models\swift-bonsai2-27b.gguf `
   --size <字节数> --sha256 <官方SHA256> --conn 20 --proxy http://127.0.0.1:7897
 
-# 1. 打包（pack.py 来自魔搭指南，不在本 git 仓；未裁剪包内也带 ninfer-tools\tools）
-set NINFER_SRC=<path-to>\ninfer-tools
-python <path-to>\tools\pack.py build D:\ai-ninfer\artifacts\swift-bonsai2-27b.ninfer `
-  --gguf <...gguf> --template D:\ai-ninfer\models\template\model.ninfer
+# 1. 打包（pack.py 来自魔搭指南，不在本 git 仓；未裁剪包内附 ninfer-tools 容器库）
+$env:NINFER_SRC = "<path-to>\ninfer-tools"
+python <path-to-guide>\tools\pack.py build "$REPO\artifacts\swift-bonsai2-27b.ninfer" `
+  --gguf <...gguf> --template "$REPO\models\template\model.ninfer"
 
 # 2. 四件套验证（脚本来自魔搭指南 tools\verify；本机参考副本 guide\ 不入库）
 python <path-to-guide>\tools\verify\check_payload_order.py ...
@@ -49,11 +51,11 @@ python <path-to-guide>\tools\verify\check_row_order.py ...
 python <path-to-guide>\tools\verify\check_assembly.py ...
 
 # 3. 词表裁剪 + 重建 + 审计
-python conversion\prune_vocab.py     --artifact artifacts\swift-bonsai2-27b.ninfer --out-dir artifacts\pruned
-python conversion\rebuild_artifact.py --artifact artifacts\swift-bonsai2-27b.ninfer --pruned artifacts\pruned `
-  --out artifacts\swift-bonsai2-27b-pruned.ninfer
-python conversion\verify\check_pruned_artifact.py --src artifacts\swift-bonsai2-27b.ninfer `
-  --dst artifacts\swift-bonsai2-27b-pruned.ninfer --pruned artifacts\pruned
+python conversion\prune_vocab.py     --artifact "$REPO\artifacts\swift-bonsai2-27b.ninfer" --out-dir "$REPO\artifacts\pruned"
+python conversion\rebuild_artifact.py --artifact "$REPO\artifacts\swift-bonsai2-27b.ninfer" --pruned "$REPO\artifacts\pruned" `
+  --out "$REPO\artifacts\swift-bonsai2-27b-pruned.ninfer"
+python conversion\verify\check_pruned_artifact.py --src "$REPO\artifacts\swift-bonsai2-27b.ninfer" `
+  --dst "$REPO\artifacts\swift-bonsai2-27b-pruned.ninfer" --pruned "$REPO\artifacts\pruned"
 ```
 
 > 使用**未裁剪发布包**时，`NINFER_SRC` 指向包内 `ninfer-tools`；使用 **git 仓**时默认指向

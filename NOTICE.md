@@ -41,6 +41,8 @@
 |---|---|---|
 | mengyou6688/Bonsai-2-27B-PQ2_0-CRACK-NInfer | mengyou6688 | Ubuntu / Linux |
 | yutils/ninfer-Bonsai-2-5070 | yutils | Windows / RTX 5070 |
+| fyb1214/Swift-Bonsai-2-27B-NInfer（2026-09-27）| fyb1214 | 更早的 Swift NInfer 移植 |
+| knoopx/Swift-Bonsai-2-27B-NInfer（2026-09-28）| knoopx | 更早的 Swift NInfer 移植 |
 
 ## 本项目原创部分（Apache-2.0）
 

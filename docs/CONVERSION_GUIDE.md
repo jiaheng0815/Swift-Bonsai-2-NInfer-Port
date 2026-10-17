@@ -45,12 +45,16 @@
 | GDN 投影 | `gdn/a_projection` ＋ `gdn/b_projection` | `gdn/a_b_projection`（融合）|
 
 本机用的模板：`models/template/model.ninfer`（SHA256 已对上发布方校验和）。
+该模板**不入库**（`models/` 被 `.gitignore` 排除）；可从
+[`wei231/ternary-bonsai-3080-sm86-ninfer`](https://huggingface.co/wei231/ternary-bonsai-3080-sm86-ninfer)
+下载 `model.ninfer` 后放到 `models/template/model.ninfer`。
 
 ## 3. 打包（两条命令）
 
 ```powershell
-# $PACK 来自魔搭指南原仓（本机参考副本 guide\tools\pack.py）
+# $REPO 是本仓根目录（示例 D:\ai-ninfer）；$PACK 来自魔搭指南原仓
 # $SRC  用指南原仓时指向引擎树；用未裁剪包时指向包内 ninfer-tools
+$REPO = "D:\ai-ninfer"
 $PACK = "<path-to-guide>\tools\pack.py"
 $SRC  = "<path-to>\ninfer-tools"
 $env:NINFER_SRC = $SRC
@@ -58,12 +62,12 @@ $env:NINFER_SRC = $SRC
 # ① 只读校验：几何 + 解码 + 往返证明（不写文件）
 python $PACK check `
   --gguf    E:\models\...\Ternary-Bonsai-2-27B-PQ2_0.gguf `
-  --template D:\ai-ninfer\models\template\model.ninfer
+  --template "$REPO\models\template\model.ninfer"
 
 # ② 全量打包
-python $PACK build D:\ai-ninfer\artifacts\bonsai2-27b.ninfer `
+python $PACK build "$REPO\artifacts\bonsai2-27b.ninfer" `
   --gguf    E:\models\...\Ternary-Bonsai-2-27B-PQ2_0.gguf `
-  --template D:\ai-ninfer\models\template\model.ninfer
+  --template "$REPO\models\template\model.ninfer"
 ```
 
 `check` 的判据（应全绿）：
@@ -84,14 +88,15 @@ RESULT: OK
 > 本机参考副本在 `guide/tools/verify/`（`guide/` 不入库）。独立包用户请从指南原仓获取。
 
 ```powershell
-$VERIFY = "<path-to-guide>\tools\verify"     # 例如 D:\ai-ninfer\guide\tools\verify
-$ART    = "D:\ai-ninfer\artifacts\swift-bonsai2-27b.ninfer"
+$REPO   = "D:\ai-ninfer"
+$VERIFY = "<path-to-guide>\tools\verify"
+$ART    = "$REPO\artifacts\swift-bonsai2-27b.ninfer"
 
 # ① 载荷布局：row-split 三平面 vs 交错块（分布指纹）
 python $VERIFY\check_payload_order.py $ART text/layers/3/attention/query_key
 
 # ② 符号表：artifact vs GGUF 元数据 逐值比对
-python $VERIFY\check_signs.py $ART D:\ai-ninfer\artifacts\hadamard-meta.json
+python $VERIFY\check_signs.py $ART "$REPO\artifacts\hadamard-meta.json"
 
 # ③ 行序：两条 INFERRED 规则的**逐行指纹**比对（抓过真 bug 的杀手判据）
 python $VERIFY\check_row_order.py $ART <pq2.gguf>

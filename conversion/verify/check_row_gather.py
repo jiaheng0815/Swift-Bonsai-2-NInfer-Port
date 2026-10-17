@@ -17,10 +17,11 @@ import gc
 import sys
 from pathlib import Path
 
-REPO_SRC = Path(os.environ.get("NINFER_SRC") or r"D:\ai-ninfer\src\cranebw")
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_SRC = Path(os.environ.get("NINFER_SRC") or _REPO_ROOT / "src" / "cranebw")
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
-GUIDE_TOOLS = Path(r"D:\ai-ninfer\tools")  # prune_vocab.py 所在（本项目工具目录）
+GUIDE_TOOLS = Path(os.environ.get("NINFER_CONVERSION") or _REPO_ROOT / "conversion")
 if str(GUIDE_TOOLS) not in sys.path:
     sys.path.insert(0, str(GUIDE_TOOLS))
 
@@ -104,7 +105,7 @@ def check_sample(artifact: Artifact, name: str, count: int) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--artifact", type=Path, default=Path(r"D:\ai-ninfer\artifacts\bonsai2-27b.ninfer"))
+    parser.add_argument("--artifact", type=Path, default=_REPO_ROOT / "artifacts" / "bonsai2-27b.ninfer")
     parser.add_argument("--rows", type=int, default=64)
     args = parser.parse_args()
 

@@ -7,10 +7,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, r"D:\ai-ninfer\src\cranebw")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(os.environ.get("NINFER_SRC") or _REPO_ROOT / "src" / "cranebw")))
 from tools.artifact.container import Artifact  # noqa: E402
 
 NAMES = (

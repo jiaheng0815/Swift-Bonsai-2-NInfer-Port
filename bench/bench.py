@@ -16,11 +16,13 @@ import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
-EXE = r"D:\ai-ninfer\build\b1\apps\ninfer-serve.exe"
-ART = r"D:\ai-ninfer\artifacts\bonsai2-27b-pruned.ninfer"
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+EXE = os.environ.get("NINFER_SERVE_EXE") or str(_REPO_ROOT / "build" / "b1" / "apps" / "ninfer-serve.exe")
+ART = os.environ.get("NINFER_ARTIFACT") or str(_REPO_ROOT / "artifacts" / "bonsai2-27b-pruned.ninfer")
 PORT = 8099
-LOGDIR = r"D:\ai-ninfer\logs\tune"
+LOGDIR = os.environ.get("NINFER_TUNE_LOGDIR") or str(_REPO_ROOT / "logs" / "tune")
 RESULTS = os.path.join(LOGDIR, "results.jsonl")
 
 

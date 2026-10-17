@@ -34,8 +34,17 @@
 python -m pip install -r requirements.txt
 ```
 
-脚本内的 `REPO_SRC`（引擎树）默认是 `D:\ai-ninfer\src\cranebw`，可用环境变量
-`NINFER_SRC` 覆盖（独立包内指向 `ninfer-tools`）。制品路径用命令行参数传入。
+脚本按自身位置解析仓库根目录：`REPO_SRC` 默认 `<repo>\src\cranebw`，
+`GUIDE_TOOLS` 默认 `<repo>\conversion`，`CORPORA_ROOT` 默认
+`<repo>\src\cranebw\eval\corpora\perplexity-1m\data`。独立包内可用环境变量覆盖：
+
+| 变量 | 作用 |
+|---|---|
+| `NINFER_SRC` | `.ninfer` 容器库所在目录（独立包指向 `ninfer-tools`）|
+| `NINFER_CONVERSION` | `prune_vocab.py` / `rebuild_artifact.py` 所在目录 |
+| `NINFER_CORPORA` | 分词损失语料根目录 |
+
+制品路径用命令行参数传入（默认值也是仓库相对路径）。
 
 > **不在本目录的两类脚本**：
 > - `pack.py`（GGUF → `.ninfer` 打包器）来自魔搭指南 `shensanshu/ninfer-ada-ternary`；

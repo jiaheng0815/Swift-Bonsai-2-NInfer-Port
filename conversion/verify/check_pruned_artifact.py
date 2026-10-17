@@ -22,7 +22,8 @@ import random
 import sys
 from pathlib import Path
 
-REPO_SRC = Path(os.environ.get("NINFER_SRC") or r"D:\ai-ninfer\src\cranebw")
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_SRC = Path(os.environ.get("NINFER_SRC") or _REPO_ROOT / "src" / "cranebw")
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
@@ -222,9 +223,9 @@ def check(src_path: Path, dst_path: Path, pruned: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--src", type=Path, default=Path(r"D:\ai-ninfer\artifacts\bonsai2-27b.ninfer"))
-    parser.add_argument("--dst", type=Path, default=Path(r"D:\ai-ninfer\artifacts\bonsai2-27b-pruned.ninfer"))
-    parser.add_argument("--pruned", type=Path, default=Path(r"D:\ai-ninfer\artifacts\pruned"))
+    parser.add_argument("--src", type=Path, default=_REPO_ROOT / "artifacts" / "bonsai2-27b.ninfer")
+    parser.add_argument("--dst", type=Path, default=_REPO_ROOT / "artifacts" / "bonsai2-27b-pruned.ninfer")
+    parser.add_argument("--pruned", type=Path, default=_REPO_ROOT / "artifacts" / "pruned")
     args = parser.parse_args()
     check(args.src, args.dst, args.pruned)
 

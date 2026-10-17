@@ -25,7 +25,8 @@ import json
 import sys
 from pathlib import Path
 
-REPO_SRC = Path(os.environ.get("NINFER_SRC") or r"D:\ai-ninfer\src\cranebw")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_SRC = Path(os.environ.get("NINFER_SRC") or _REPO_ROOT / "src" / "cranebw")
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
@@ -213,9 +214,9 @@ def build(args: argparse.Namespace) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--artifact", type=Path, default=Path(r"D:\ai-ninfer\artifacts\bonsai2-27b.ninfer"))
-    parser.add_argument("--pruned", type=Path, default=Path(r"D:\ai-ninfer\artifacts\pruned"))
-    parser.add_argument("--out", type=Path, default=Path(r"D:\ai-ninfer\artifacts\bonsai2-27b-pruned.ninfer"))
+    parser.add_argument("--artifact", type=Path, default=_REPO_ROOT / "artifacts" / "bonsai2-27b.ninfer")
+    parser.add_argument("--pruned", type=Path, default=_REPO_ROOT / "artifacts" / "pruned")
+    parser.add_argument("--out", type=Path, default=_REPO_ROOT / "artifacts" / "bonsai2-27b-pruned.ninfer")
     parser.add_argument("--dry-run", action="store_true", help="只打印处理计划，不写文件")
     raise SystemExit(build(parser.parse_args()))
 
