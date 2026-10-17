@@ -40,7 +40,7 @@ python conversion\parallel_dl.py --url <官方GGUF地址> --out E:\models\swift-
   --size <字节数> --sha256 <官方SHA256> --conn 20 --proxy http://127.0.0.1:7897
 
 # 1. 打包（pack.py 来自魔搭指南，不在本 git 仓；未裁剪包内附 ninfer-tools 容器库）
-$env:NINFER_SRC = "<path-to>\ninfer-tools"
+$env:NINFER_SRC = "<path-to>\ninfer-tools"   # 用指南原仓时改为 "$REPO\src\cranebw"
 python <path-to-guide>\tools\pack.py build "$REPO\artifacts\swift-bonsai2-27b.ninfer" `
   --gguf <...gguf> --template "$REPO\models\template\model.ninfer"
 
