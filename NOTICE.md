@@ -31,8 +31,8 @@
 | 模型 | 作者 | 许可 |
 |---|---|---|
 | Swift Bonsai 2（PQ2_0）| [UkisAI](https://huggingface.co/ukisai/Swift-Bonsai-2-GGUF) | Apache-2.0 |
-| Ternary Bonsai 2 27B（PQ2_0 / mmproj）| [PrismML](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) | 见其模型卡 |
-| Qwen3.8-27B（分词器 / MTP 头来源）| Qwen | 见其模型卡 |
+| Ternary Bonsai 2 27B（PQ2_0 / mmproj）| [PrismML](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) | Apache-2.0 |
+| Qwen3.8-27B（分词器 / MTP 头来源）| [Qwen](https://huggingface.co/Qwen/Qwen3.8-27B) | Apache-2.0 |
 | 制品模板（借 MTP 头 / 分词器 / 视觉塔）| wei231/ternary-bonsai-3080-sm86-ninfer | 见其仓声明 |
 
 ## 社区参考实现
