@@ -25,5 +25,7 @@ python bench\bench.py --label my-test --prefill-tokens 12288 --spec mtp --draft-
   --device-state-slots 1 --max-private-continuations 1 --max-shared-prefixes 0
 ```
 
-> `bench.py` / `analyze.py` 的日志目录默认 `D:\ai-ninfer\logs\tune`（可用环境变量
-> `NINFER_TUNE_LOGDIR` 覆盖）；`swift_bench.py` 的结果写在同目录的 `swift_bench.jsonl`。
+> `bench.py` / `analyze.py` 的日志目录默认 `<repo>\logs\tune`（可用环境变量
+> `NINFER_TUNE_LOGDIR` 覆盖）；`bench.py` 的 exe / 制品路径可用
+> `NINFER_SERVE_EXE` / `NINFER_ARTIFACT` 覆盖；`swift_bench.py` 的结果写在同目录的
+> `swift_bench.jsonl`。
