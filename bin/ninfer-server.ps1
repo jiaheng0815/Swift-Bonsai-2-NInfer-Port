@@ -25,8 +25,8 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Root     = 'D:\ai-ninfer'
-$Artifact = Join-Path $Root 'artifacts\bonsai2-27b-pruned.ninfer'
+$Root     = Split-Path -Parent $PSScriptRoot   # bin\ -> repo root
+$Artifact = Join-Path $Root 'artifacts\swift-bonsai2-27b-pruned.ninfer'
 $Exe      = Join-Path $Root 'build\b1\apps\ninfer-serve.exe'
 
 $model = $null
@@ -196,7 +196,7 @@ $serveArgs = New-Object System.Collections.Generic.List[string]
 $serveArgs.Add($model)
 $serveArgs.Add('--host');   $serveArgs.Add($hostAddr)
 $serveArgs.Add('--port');   $serveArgs.Add($port)
-$serveArgs.Add('--model-id'); $serveArgs.Add('bonsai2-27b')
+$serveArgs.Add('--model-id'); $serveArgs.Add('swift-bonsai2-27b')
 $serveArgs.Add('--max-context'); $serveArgs.Add($ctx)
 # Explicit capacity: `auto` demands 1 GiB of headroom on top of the reservation
 # and cannot start at 262144 (docs/TUNING.md 5).

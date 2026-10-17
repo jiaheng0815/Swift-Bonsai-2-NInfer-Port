@@ -32,6 +32,7 @@ build\b1\apps\ninfer-serve.exe artifacts\swift-bonsai2-27b-pruned.ninfer ^
 | `--spec/--draft-tokens` | mtp / 3 | K=1/2/3 速度实测相同（§3）；**K=4/5 崩到 11 tok/s，绝对不要用** |
 | `--lm-head-draft` | 开 | 显存预留与关掉完全相同（6.51 GiB），速度在噪声内 → 保留 |
 | 状态槽三件套 | 最小可用缓存 | 换来的前缀复用极大：15k 前缀二次请求 TTFT **79 ms**、131k **825 ms**（§4）|
+| `--host-kv-mib` | 0（推荐）/ 1024（启动器默认）| 主机侧 KV 预留，不占显存；1024 给长上下文前缀更多余量，显存数据见 §2 复测 |
 | `--vision` | 开 | 只占约 0.3 GiB 权重 |
 
 启动后确认这一行没超：

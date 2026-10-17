@@ -48,6 +48,7 @@ ninfer-server -m D:\ai-ninfer\artifacts\swift-bonsai2-27b-pruned.ninfer -c 26214
 
 启动器已注入实测最优默认值（`--kv-capacity 262144`、`--prefill-chunk 8192`、MTP K=3 等），一般不用手动传；
 `--prefill-chunk N` 可显式覆盖，传超过 8192 会提示越线（16 GB 卡实测上限，数据见 [TUNING §2](TUNING.md)）。
+启动器默认 `--host-kv-mib 1024`（主机侧 KV 预留，不占显存；`launch_windows.bat` 用 0，纯显存最省）。
 
 ## 2. 调用（OpenAI / Anthropic 双协议）
 
