@@ -63,6 +63,15 @@
 | `engine/ninfer-engine-ternary-bonsai-swift-port-v1.0.0.zip` | **完整 C++ 引擎源码**（基树 `ad6cb46` + 本仓补丁）—— 同一份源码也在本仓 `src/cranebw/` | 11 MB |
 | `SHA256SUMS.txt` | 上面三个 zip 的校验和（`sha256sum -c` / `certutil -hashfile`）| 1 KB |
 
+下载后校验：
+
+```powershell
+sha256sum -c SHA256SUMS.txt              # Linux / macOS / WSL
+certutil -hashfile <文件名> SHA256        # Windows
+```
+
+包内另有一份 `SHA256SUMS.txt`，用于校验解压后的模型与 exe。
+
 ### 镜像 / 代理说明
 
 - 权重原始来源是 Hugging Face（`ukisai/Swift-Bonsai-2-GGUF`、`prism-ml/Ternary-Bonsai-2-27B-gguf`）。
