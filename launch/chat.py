@@ -17,8 +17,8 @@ import urllib.error
 import urllib.request
 
 BASE = "http://127.0.0.1:8080/v1"
-# 模型名可用命令行参数或环境变量覆盖（例如 swift-bonsai2-27b），默认基线模型
-MODEL = os.environ.get("NINFER_MODEL") or (sys.argv[1] if len(sys.argv) > 1 else "bonsai2-27b")
+# 模型名可用命令行参数或环境变量覆盖（例如 bonsai2-27b），默认 Swift
+MODEL = os.environ.get("NINFER_MODEL") or (sys.argv[1] if len(sys.argv) > 1 else "swift-bonsai2-27b")
 DIM = "\033[2m"
 OFF = "\033[0m"
 
