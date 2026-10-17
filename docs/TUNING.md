@@ -1,8 +1,8 @@
 # TUNING · 262k 上下文最佳参数（30 次起服务实测）
 
-> 对象：`artifacts/bonsai2-27b-pruned.ninfer`（7.63 GiB，裁剪词表制品，1119 张量）
+> 对象：`artifacts/swift-bonsai2-27b-pruned.ninfer`（7.63 GiB，裁剪词表制品，1119 张量）
 > 机器：RTX 5060 Ti 16 GB（可用 16,311 MiB）+ 32 GB RAM
-> 日期：2026年10月09日 · 原始数据在 `logs/tune/`（脚本见 `bench/`，可复跑）
+> 日期：2026年10月09日首测，2026年10月17日校对 · 原始数据在 `logs/tune/`（脚本见 `bench/`，可复跑）
 
 ---
 
@@ -54,6 +54,7 @@ capacity | KV 262,144 tokens, nvfp4, explicit | pages 4,096/4,096 | runtime 6.51
 | 4096 | 5.87 GiB | 1.17 GiB | 642.7 | |
 | 7168 | 6.35 GiB | 715 MiB | 647.3 / 652.0 | 旧推荐值 |
 | **8192** | **6.51 GiB** | **500–546 MiB** | **654.4 / 654.3** | **推荐：不发烫的最大值** |
+| 9216 | 6.67 GiB | 382 MiB | — | 越线（< 400 MiB 安全线）|
 | 10240 | 6.82 GiB | 197 MiB | **506.1** ⬇ | 掉速 23% |
 | 12288 | 7.14 GiB | **0 B** ⬅ 榨干 | **517.9** ⬇ | 掉速 |
 | 16384 | 需 7.78 GiB | — | **起不来** | `requested Engine runtime reservation requires 8350087936 bytes, but only 7724669440 bytes are available` |
@@ -63,6 +64,10 @@ capacity | KV 262,144 tokens, nvfp4, explicit | pages 4,096/4,096 | runtime 6.51
 - 显存成本线性：**约 160 KB / token**（0.156 MiB/token），从 chunk≈2048 起算。
 - **掉速的根因是显存榨干，不是 chunk 本身**：把 KV 降到 131072（腾出 2.19 GiB）再跑
   chunk=12288 → **657.6 tok/s，满速**。
+
+2026年10月11日复测（`--host-kv-mib 1024`，其余同）：7168 → free 674 MiB、8192 → 527–536 MiB、
+9216 → 382 MiB（越线）。与上表一致：**8192 是不越线的最大值，往上没有余量**，
+`bin\ninfer-server.ps1` 与 `launch\*.bat` 的默认值就取这一档，回退档 7168。
 
 ## 三、解码（MTP）：K=1/2/3 一样快，K=4/5 是陷阱
 

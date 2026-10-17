@@ -3,6 +3,7 @@
 > 机器：RTX 5060 Ti 16 GB（可用 16,311 MiB）+ 32 GB RAM，Windows 11。
 > 引擎配置（除注明外）：`262144 / nvfp4 / prefill-chunk 8192 / MTP K=3 / vision`。
 > **所有数字都是本机实测**，不是引用值；判据写在每节里。
+> 最后校对：2026年10月17日（v1.0.0 发布包）。
 
 ---
 
@@ -123,6 +124,10 @@ python bench\swift_bench.py --label swift --model swift-bonsai2-27b
 | 全量装配 | 15/15 | **15/15** |
 | 裁剪重建审计 | ALL PASSED | **ALL PASSED** |
 | 词表裁剪损失（纯中英文）| 0.0000% | **0.0000%** |
+
+**发布包端到端（v1.0.0 完整包）**：解压 → 双击 `launch\launch_windows.bat` →
+`engine ready 8.8 s` → `capacity | KV 262,144 tokens, nvfp4, explicit | free 435 MiB` →
+`/v1/chat/completions` 正常返回。包内 CUDA 已静态链接，FFmpeg / VC++ 运行库随包提供。
 
 ## 9. 复现
 

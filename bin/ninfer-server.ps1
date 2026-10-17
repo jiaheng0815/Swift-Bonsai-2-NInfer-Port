@@ -1,4 +1,4 @@
-# llama.cpp-flavoured launcher for the NInfer server.
+﻿# llama.cpp-flavoured launcher for the NInfer server.
 #
 # NInfer's own flags are kept, and the llama.cpp spellings most people have in muscle
 # memory are translated onto them:
@@ -10,16 +10,23 @@
 #   -c N              --max-context N
 #   -ctk / -ctv T     --kv-dtype <T>   (q4_0 -> nvfp4, q8_0 -> int8, f16 -> bf16, ...)
 #   --parallel N      --max-concurrency N
+#   --prefill-chunk N --prefill-chunk N (default 8192 = measured ceiling on this 16 GB
+#                     card; 9216 drops below the 400 MiB VRAM safety line, see
+#                     docs/TUNING.md 2)
 #   --host / --port   passed through
 #   --no-mmproj       drop --vision
 #
 # Anything not listed is passed to ninfer-serve.exe unchanged.  --dry-run prints the
 # resolved command instead of starting the engine.
+#
+# NOTE: keep this file UTF-8 **with BOM**. Windows PowerShell 5.1 decodes BOM-less
+# UTF-8 as ANSI, the Chinese strings below then swallow their closing quote, and the
+# whole script dies with "MissingArrayIndexExpression". Do not strip the BOM.
 
 $ErrorActionPreference = 'Stop'
 
 $Root     = 'D:\ai-ninfer'
-$Artifact = Join-Path $Root 'artifacts\bonsai2-27b.ninfer'
+$Artifact = Join-Path $Root 'artifacts\bonsai2-27b-pruned.ninfer'
 $Exe      = Join-Path $Root 'build\b1\apps\ninfer-serve.exe'
 
 $model = $null
@@ -29,6 +36,7 @@ $dtype = $null
 $kvK = $null
 $kvV = $null
 $parallel = '1'
+$prefillChunk = '8192'
 $hostAddr = '127.0.0.1'
 $port = '8080'
 $vision = $true
@@ -77,6 +85,8 @@ while ($i -lt $argv.Count) {
     $kvV = $next; $i += 2
   } elseif ($a -eq '--parallel' -or $a -eq '-np') {
     $parallel = $next; $i += 2
+  } elseif ($a -eq '--prefill-chunk') {
+    $prefillChunk = $next; $i += 2
   } elseif ($a -eq '--host') {
     $hostAddr = $next; $i += 2
   } elseif ($a -eq '--port') {
@@ -153,6 +163,23 @@ if ($fromK -and $fromV -and $fromK -ne $fromV) {
 elseif ($fromV)   { $dtype = $fromV }
 else              { $dtype = 'nvfp4' }
 
+# --- the prefill chunk ------------------------------------------------------
+# A VRAM knob, not a speed knob: 1024 -> 8192 all prefill at ~650 tok/s; what
+# grows is the runtime reservation (~0.16 MiB per chunk token).  Measured on
+# this 16 GB card (docs/TUNING.md 2): 7168 -> 674 MiB free, 8192 -> 527 MiB,
+# 9216 -> 382 MiB (under the 400 MiB safety line), 16384 -> fails to start.
+if ($prefillChunk -match '^\d+$') {
+  $pcValue = [int] $prefillChunk
+  if ($pcValue % 128 -ne 0) {
+    $notes.Add("--prefill-chunk $prefillChunk is not a multiple of 128; the engine will refuse it")
+  }
+  if ($pcValue -gt 8192) {
+    $notes.Add("--prefill-chunk $prefillChunk is above the measured ceiling for this 16 GB card (8192); the free-VRAM safety line will be crossed")
+  }
+} else {
+  $notes.Add("--prefill-chunk '$prefillChunk' is not a number")
+}
+
 # --- the mmproj check -------------------------------------------------------
 if ($mmproj) {
   if (-not (Test-Path -LiteralPath $mmproj)) {
@@ -171,8 +198,11 @@ $serveArgs.Add('--host');   $serveArgs.Add($hostAddr)
 $serveArgs.Add('--port');   $serveArgs.Add($port)
 $serveArgs.Add('--model-id'); $serveArgs.Add('bonsai2-27b')
 $serveArgs.Add('--max-context'); $serveArgs.Add($ctx)
-$serveArgs.Add('--kv-capacity'); $serveArgs.Add('auto')
+# Explicit capacity: `auto` demands 1 GiB of headroom on top of the reservation
+# and cannot start at 262144 (docs/TUNING.md 5).
+$serveArgs.Add('--kv-capacity'); $serveArgs.Add($ctx)
 $serveArgs.Add('--kv-dtype'); $serveArgs.Add($dtype)
+$serveArgs.Add('--prefill-chunk'); $serveArgs.Add($prefillChunk)
 $serveArgs.Add('--max-concurrency'); $serveArgs.Add($parallel)
 $serveArgs.Add('--spec'); $serveArgs.Add('mtp')
 $serveArgs.Add('--draft-tokens'); $serveArgs.Add('3')

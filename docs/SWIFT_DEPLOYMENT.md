@@ -4,10 +4,17 @@
 > （Ternary Bonsai 2 27B 的推理效率微调版，官方称**思考 token 中位减少 39.8%**、得分持平或更高）
 > 跑在 **NInfer** 引擎上，并套用本项目的**词表裁剪**。
 >
-> **公开状态**：社区此前只有 llama.cpp 跑过 Swift（官方 fork 支持其张量类型）；
-> **NInfer + 词表裁剪这条线，本仓是第一个。**
+> **公开状态**：NInfer 上已有更早的 Swift 移植（`fyb1214`、`knoopx`，2026 年 9 月底）；
+> **带词表裁剪 + 逐字节验证的移植，本仓是第一个。**
 >
 > 实测机器：Windows 11 + RTX 5060 Ti 16 GB（`sm_120a`）。
+>
+> **发布渠道**：源码在 [GitHub](https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port) /
+> [Gitee 镜像](https://gitee.com/fengjiaheng123/swift-bonsai-2-ninfer-port)；
+> 完整包 / 未裁剪包在 [Hugging Face](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port)
+> 和 [魔搭](https://www.modelscope.cn/models/jiaheng0815/Swift-Bonsai-2-NInfer-Port)。
+>
+> 文档最后校对：2026年10月17日。
 
 ---
 
@@ -48,10 +55,21 @@ no adapter file, patch, or extra flag is needed*），文件布局与基座完�
 
 ## 3. 打包（与基线同一条命令）
 
+打包器 `pack.py` **不在本 git 仓内**（它来自魔搭指南 `shensanshu/ninfer-ada-ternary`）：
+
+1. 从魔搭指南原仓获取 `tools/pack.py` 与 `tools/verify/`（本机参考副本在 `guide/`，不入库）；
+2. 若使用[Hugging Face](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port) /
+   [魔搭](https://www.modelscope.cn/models/jiaheng0815/Swift-Bonsai-2-NInfer-Port) 的
+   **未裁剪包**，它提供自包含容器库 `ninfer-tools/`——把它指给 `NINFER_SRC`，
+   打包器仍用第 1 步的 `pack.py`（包内 `README.txt` 有完整步骤）。
+
 ```powershell
-cd guide
-python tools\pack.py check --gguf <Swift.gguf> --template D:\ai-ninfer\models\template\model.ninfer
-python tools\pack.py build D:\ai-ninfer\artifacts\swift-bonsai2-27b.ninfer `
+# 例：从未裁剪包解压出的目录运行（Windows）
+set NINFER_SRC=%CD%\ninfer-tools
+set PACK=path\to\pack.py
+
+python %PACK% check --gguf <Swift.gguf> --template D:\ai-ninfer\models\template\model.ninfer
+python %PACK% build D:\ai-ninfer\artifacts\swift-bonsai2-27b.ninfer `
   --gguf <Swift.gguf> --template D:\ai-ninfer\models\template\model.ninfer
 ```
 
@@ -70,6 +88,7 @@ python tools\pack.py build D:\ai-ninfer\artifacts\swift-bonsai2-27b.ninfer `
 ## 4. 词表裁剪（Swift 版）
 
 ```powershell
+# 在 git 仓内（默认用 src\cranebw 的容器库）；独立包内先 set NINFER_SRC=...\ninfer-tools
 python conversion\prune_vocab.py     --artifact artifacts\swift-bonsai2-27b.ninfer --out-dir artifacts\pruned
 python conversion\rebuild_artifact.py --artifact artifacts\swift-bonsai2-27b.ninfer --pruned artifacts\pruned `
   --out artifacts\swift-bonsai2-27b-pruned.ninfer
@@ -107,7 +126,7 @@ launch\launch_windows.bat
 
 | 步 | 命令 | 期望 |
 |---|---|---|
-| 1 | 下载 Swift GGUF（官方）| SHA256 = `5912bb73…63d5` |
+| 1 | 下载 Swift GGUF（官方；大文件走代理直连，见 `conversion/parallel_dl.py`）| SHA256 = `5912bb73…63d5` |
 | 2 | `probe_swift.py` 结构比对 | 7 项判据全一致（§2）|
 | 3 | `pack.py check` + `build` | `RESULT: OK`；7.736 GiB / 1126 对象 |
 | 4 | 四件套验证 | 全绿（§3）|

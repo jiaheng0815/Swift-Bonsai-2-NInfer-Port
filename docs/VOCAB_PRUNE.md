@@ -4,7 +4,7 @@
 > 中英文分词损失 **0.0000%**。制品 7.736 GiB → **7.629 GiB**（省 110 MiB），
 > 显存内 embedding / output_head 两张 337 MB 的大表同步缩小。
 >
-> **全社区此前没有第二家**把 NInfer/Bonsai 2 的制品做词表裁剪并闭环验证。
+> 据我们所知，公开社区里还没有第二家把 NInfer/Bonsai 2 的制品做词表裁剪并完成闭环验证。
 
 ---
 
@@ -127,19 +127,23 @@ ALL CHECKS PASSED
 cd D:\ai-ninfer
 
 # ① 分类裁剪（只读制品，产出 4 个文件到 artifacts\pruned）
-python conversion\prune_vocab.py --artifact artifacts\bonsai2-27b.ninfer --out-dir artifacts\pruned
+python conversion\prune_vocab.py --artifact artifacts\swift-bonsai2-27b.ninfer --out-dir artifacts\pruned
 
 # ② 逐字节重建（数分钟）
-python conversion\rebuild_artifact.py --artifact artifacts\bonsai2-27b.ninfer `
-  --pruned artifacts\pruned --out artifacts\bonsai2-27b-pruned.ninfer
+python conversion\rebuild_artifact.py --artifact artifacts\swift-bonsai2-27b.ninfer `
+  --pruned artifacts\pruned --out artifacts\swift-bonsai2-27b-pruned.ninfer
 
 # ③ 审计（必做）
 python conversion\verify\check_pruned_artifact.py `
-  --src artifacts\bonsai2-27b.ninfer --dst artifacts\bonsai2-27b-pruned.ninfer --pruned artifacts\pruned
+  --src artifacts\swift-bonsai2-27b.ninfer --dst artifacts\swift-bonsai2-27b-pruned.ninfer --pruned artifacts\pruned
 
-# ④ 在线验证（先起服务）
-python conversion\verify\check_pruned_serving.py --model <模型名>
+# ④ 在线验证（先起服务；model 名填 swift-bonsai2-27b）
+python conversion\verify\check_pruned_serving.py --model swift-bonsai2-27b
 ```
+
+> 基线制品（`artifacts\bonsai2-27b.ninfer`）走完全相同的四步，把文件名换掉即可。
+> 在独立包内运行时，先 `set NINFER_SRC=<包根>\ninfer-tools`（或完整包里的
+> `conversion\ninfer-tools`），让脚本找到 `.ninfer` 容器库。
 
 > `prune_vocab.py` 末尾会打印 **special token 新 id 表**与 **自我检查**（中英文/代码
 > 往返、以及"应退化"的俄语/日文/emoji 用例），改引擎常数时照它对。

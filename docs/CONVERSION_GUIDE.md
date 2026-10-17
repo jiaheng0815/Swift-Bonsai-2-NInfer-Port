@@ -1,16 +1,22 @@
 # 02 · 制品制作与验证
 
 > 把官方 **PQ2_0 GGUF**（1.58-bit 三元）打成 NInfer 原生 `.ninfer` 制品，并做**四件套验证**。
-> 打包器来自魔搭指南（`guide/tools/pack.py`），本仓只做两处最小修正（见 [ENGINE_BUILD.md](ENGINE_BUILD.md) §4）。
+> 打包器来自魔搭指南（`shensanshu/ninfer-ada-ternary` 的 `tools/pack.py`）；
+> 本机参考副本在 `guide/`（不入库），本仓对它的两处最小修正见 [ENGINE_BUILD.md](ENGINE_BUILD.md) §4。
+> **未裁剪发布包**里也带一份可直接用的 `ninfer-tools/tools`（自包含容器库）。
 >
 > **原则：逐字节搬运 2-bit 码字与 scale，绝不「解量化 → 再量化」。**
 
 ---
 
 > **快捷路径**：不想从 GGUF 重新打包的话，
-> [Hugging Face](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port) 提供
+> [Hugging Face](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port) 与
+> [魔搭 ModelScope](https://www.modelscope.cn/models/jiaheng0815/Swift-Bonsai-2-NInfer-Port) 提供
 > **完整包**（引擎 + 已裁剪模型 + 剪切器，开箱即用）与**未裁剪制品包**（含词表剪切器与包内说明）。
 > 用未裁剪包的话，解压后直接跳到 §4 的词表裁剪，再回 §6 起服务。
+>
+> 源码镜像：[GitHub](https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port) ·
+> [Gitee](https://gitee.com/fengjiaheng123/swift-bonsai-2-ninfer-port)。
 
 ## 1. 制品是什么
 
@@ -43,15 +49,19 @@
 ## 3. 打包（两条命令）
 
 ```powershell
-cd D:\ai-ninfer\guide
+# $PACK 来自魔搭指南原仓（本机参考副本 guide\tools\pack.py）
+# $SRC  用指南原仓时指向引擎树；用未裁剪包时指向包内 ninfer-tools
+$PACK = "<path-to-guide>\tools\pack.py"
+$SRC  = "<path-to>\ninfer-tools"
+$env:NINFER_SRC = $SRC
 
 # ① 只读校验：几何 + 解码 + 往返证明（不写文件）
-python tools\pack.py check `
+python $PACK check `
   --gguf    E:\models\...\Ternary-Bonsai-2-27B-PQ2_0.gguf `
   --template D:\ai-ninfer\models\template\model.ninfer
 
 # ② 全量打包
-python tools\pack.py build D:\ai-ninfer\artifacts\bonsai2-27b.ninfer `
+python $PACK build D:\ai-ninfer\artifacts\bonsai2-27b.ninfer `
   --gguf    E:\models\...\Ternary-Bonsai-2-27B-PQ2_0.gguf `
   --template D:\ai-ninfer\models\template\model.ninfer
 ```
@@ -70,20 +80,24 @@ RESULT: OK
 
 ## 4. 四件套验证（判据与结果）
 
+> 四件套脚本来自**魔搭指南的 `tools/verify/`**，不在本 git 仓内；
+> 本机参考副本在 `guide/tools/verify/`（`guide/` 不入库）。独立包用户请从指南原仓获取。
+
 ```powershell
-cd D:\ai-ninfer\guide
+$VERIFY = "<path-to-guide>\tools\verify"     # 例如 D:\ai-ninfer\guide\tools\verify
+$ART    = "D:\ai-ninfer\artifacts\swift-bonsai2-27b.ninfer"
 
 # ① 载荷布局：row-split 三平面 vs 交错块（分布指纹）
-python conversion\verify\check_payload_order.py <artifact> text/layers/3/attention/query_key
+python $VERIFY\check_payload_order.py $ART text/layers/3/attention/query_key
 
 # ② 符号表：artifact vs GGUF 元数据 逐值比对
-python conversion\verify\check_signs.py <artifact> D:\ai-ninfer\artifacts\hadamard-meta.json
+python $VERIFY\check_signs.py $ART D:\ai-ninfer\artifacts\hadamard-meta.json
 
 # ③ 行序：两条 INFERRED 规则的**逐行指纹**比对（抓过真 bug 的杀手判据）
-python conversion\verify\check_row_order.py <artifact> <pq2.gguf>
+python $VERIFY\check_row_order.py $ART <pq2.gguf>
 
 # ④ 全量装配审计：每个对象、每一行的多重集 + 规则逐行比对
-python conversion\verify\check_assembly.py <artifact> <pq2.gguf>
+python $VERIFY\check_assembly.py $ART <pq2.gguf>
 ```
 
 | # | 判据 | 基线制品 | **Swift 制品** |

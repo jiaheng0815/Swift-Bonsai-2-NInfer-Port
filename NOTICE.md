@@ -4,7 +4,18 @@
 **PrismML Ternary Bonsai 2 27B** 的推理效率微调版，底座 **Qwen3.8-27B**）
 移植到 NInfer 引擎，并给出**词表裁剪**与**逐字节验证**的完整工具链。
 
-**本仓不分发任何模型权重或由权重派生的 `.ninfer` 制品。**
+**本 git 仓不含任何模型权重或由权重派生的 `.ninfer` 制品**（`.gitignore` 已排除）。
+可选的**开箱即用发布包**（含已裁剪制品）在以下渠道另行分发：
+
+| 渠道 | 地址 | 内容 |
+|---|---|---|
+| Hugging Face | https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port | 完整包 / 未裁剪包 / 引擎源码 |
+| 魔搭 ModelScope | https://www.modelscope.cn/models/jiaheng0815/Swift-Bonsai-2-NInfer-Port | 同上 |
+| GitHub（主仓） | https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port | 源码与文档 |
+| Gitee（镜像） | https://gitee.com/fengjiaheng123/swift-bonsai-2-ninfer-port | 源码与文档 |
+
+> Swift Bonsai 2 与 Ternary Bonsai 2 均按 **Apache-2.0** 发布，允许再分发派生制品；
+> 发布包内保留完整 `NOTICE.txt` 与许可文本。若上游许可发生变化，以官方模型卡为准。
 
 ## 上游组件
 

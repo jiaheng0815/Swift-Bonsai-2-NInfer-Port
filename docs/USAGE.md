@@ -2,6 +2,17 @@
 
 > 引擎：`CraneBW/ninfer-ternary-bonsai-ada`（本机按 `sm_120a` 重编，改动见 [engine/README.md](../engine/README.md)）
 > 模型：Swift Bonsai 2 27B（`swift-bonsai2-27b`）/ 基线 Ternary Bonsai 2 27B（`bonsai2-27b`）
+>
+> 下载：[Hugging Face](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port) ·
+> [魔搭 ModelScope](https://www.modelscope.cn/models/jiaheng0815/Swift-Bonsai-2-NInfer-Port)；
+> 源码：[GitHub](https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port) ·
+> [Gitee](https://gitee.com/fengjiaheng123/swift-bonsai-2-ninfer-port)。
+> 文档最后校对：2026年10月17日。
+
+> **两种目录布局**：git 仓里制品在 `artifacts\`、exe 在 `build\b1\apps\`；
+> 完整包里制品在 `models\`、exe 在 `bin\`。下文命令以 git 仓为准，完整包用户把路径换成
+> `models\swift-bonsai2-27b-pruned.ninfer` 与 `bin\ninfer-serve.exe` 即可
+> （启动脚本已自动处理，不用改）。
 
 ---
 
@@ -9,9 +20,9 @@
 
 | 方式 | 命令 | 说明 |
 |---|---|---|
-| **双击（推荐）** | `launch\launch_windows.bat` | Swift 版，实测最优参数 |
-| 双击 | `launch\launch_windows_base.bat` | 基线版（A/B 对比用）|
-| 后台 | `launch\serve_detached.bat [model-id]` | 日志写文件，不开窗口 |
+| **双击（推荐）** | `launch\launch_windows.bat` | Swift 版，实测最优参数（完整包 / git 仓都有）|
+| 双击 | `launch\launch_windows_base.bat` | 基线版（A/B 对比用；仅 git 仓，需自备基线制品）|
+| 后台 | `launch\serve_detached.bat [model-id]` | 日志写文件，不开窗口（仅 git 仓）|
 | 停止 | `launch\stop_server.bat` | 并确认显存回落 |
 | Linux | `launch/launch_linux.sh` | ⚠️ 模板，未实测 |
 
@@ -24,7 +35,8 @@
 
 ### llama.cpp 风格启动器（可选）
 
-`bin\ninfer-server.cmd`（已加入用户级 PATH，见 §7）认 `-m / -mm / -c / -ctk / -ctv / --parallel`，
+`bin\ninfer-server.cmd`（可选；把 `bin\` 加入 PATH 后可在任意目录调用，见 §7）认
+`-m / -mm / -c / -ctk / -ctv / --parallel / --prefill-chunk`，
 自动翻译成 NInfer 参数；`--dry-run` 只打印最终命令：
 
 ```powershell
@@ -32,6 +44,9 @@ ninfer-server -m D:\ai-ninfer\artifacts\swift-bonsai2-27b-pruned.ninfer -c 26214
 ```
 
 `-ctk/-ctv` 映射：`q4_0/q5_0/q5_1/iq4_nl → nvfp4`、`q8_0/q8_1 → int8`、`f16/bf16 → bf16`、`fp8 → fp8`。
+
+启动器已注入实测最优默认值（`--kv-capacity 262144`、`--prefill-chunk 8192`、MTP K=3 等），一般不用手动传；
+`--prefill-chunk N` 可显式覆盖，传超过 8192 会提示越线（16 GB 卡实测上限，数据见 [TUNING §2](TUNING.md)）。
 
 ## 2. 调用（OpenAI / Anthropic 双协议）
 
@@ -113,6 +128,7 @@ NInfer 的对应档位就是 `nvfp4`，实测同样开出 262,144。
 | `-m <model>` | 第一个位置参数 `<artifact>`（给 GGUF 会自动换成 `.ninfer`）|
 | `-mm <mmproj>` | 无（视觉塔在制品内，路径只做校验）|
 | `-c N` | `--max-context N` |
+| `-ub N`（概念近似）| `--prefill-chunk N`（预填充分块，显存旋钮；引擎默认 1024，本机实测上限 8192）|
 | `-ctk` / `-ctv` | `--kv-dtype`（只有一个 KV 精度，K/V 必须一致）|
 | `--parallel N` | `--max-concurrency N` |
 | `--temp` | `--temperature` |
@@ -125,7 +141,7 @@ NInfer 的对应档位就是 `nvfp4`，实测同样开出 262,144。
 
 | 现象 | 处理 |
 |---|---|
-| 启动报显存不足 | 降 `--max-context`；或去掉 `--vision`；或把 `--prefill-chunk` 降到 7168 |
+| 启动报显存不足 | 降 `--max-context`；或去掉 `--vision`；或把 `--prefill-chunk` 从 8192 降到 7168（判据：启动后 `capacity` 行的 `free` < 400 MiB 就该降）|
 | `model_not_found` | `model` 必须与服务端 `--model-id` 一致 |
 | 重新编译报 `LNK1104` | 先 `launch\stop_server.bat`（exe 被占用）|
 | 中文 `ninfer.exe --prompt` 报 NFC 归一化失败 | 中文走 `--messages <utf8.json>` 或 HTTP |
@@ -161,9 +177,9 @@ Agent 任务（4–8 轮、1–3 次工具调用）20–25 秒完成。
 ## 7. 文件都在哪
 
 ```
-artifacts\            制品（.ninfer）与裁剪资源
-build\b1\apps\        三个 exe（已在 PATH）：ninfer / ninfer-serve / ninfer-perplexity
-bin\                  llama.cpp 风格启动器（ninfer-server，已在 PATH）
+artifacts\            制品（.ninfer）与裁剪资源（git 仓）
+build\b1\apps\        三个 exe：ninfer / ninfer-serve / ninfer-perplexity（git 仓）
+bin\                  llama.cpp 风格启动器 ninfer-server（git 仓）
 launch\               启动/停止/聊天/PPL 脚本
 conversion\           词表裁剪 / 重建 / 验证工具
 engine\               引擎改动说明与 patch
@@ -171,5 +187,18 @@ docs\                 全部文档
 eval\                 PPL 语料与 MMLU 评测
 logs\                 运行日志与调参数据（bench\ 脚本的默认输出目录）
 src\cranebw\          引擎源码树（第三方 + engine\patches 应用后）
-guide\                魔搭指南原仓（第三方，pack.py 等）
+guide\                魔搭指南原仓（第三方，pack.py / tools\verify；不入库）
+
+完整包布局：bin\（exe+DLL） models\（已裁剪制品） conversion\ launch\ eval\
 ```
+
+**把 exe / 启动器加进 PATH（可选）**：在 PowerShell 里执行一次（用户级，永久）：
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  'Path',
+  [Environment]::GetEnvironmentVariable('Path','User') + ';D:\ai-ninfer\build\b1\apps;D:\ai-ninfer\bin',
+  'User')
+```
+
+完整包用户把路径换成 `<解压目录>\bin` 即可。

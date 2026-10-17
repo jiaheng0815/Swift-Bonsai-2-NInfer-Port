@@ -5,6 +5,11 @@
 >
 > 参照物：魔搭指南 **`shensanshu/ninfer-ada-ternary`**（目标卡 RTX 4080 SUPER / Ada `sm_89` / 32 GB）。
 > 本机是 Blackwell + 16 GB，因此**引擎树、编译架构、SM 计数**三处做了适配，其余严格按指南走。
+>
+> 源码已在 [GitHub](https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port) 与
+> [Gitee 镜像](https://gitee.com/fengjiaheng123/swift-bonsai-2-ninfer-port) 提供；
+> 不想自己编译的话，用[完整包](https://huggingface.co/jiaheng0815/Swift-Bonsai-2-NInfer-Port)
+> （引擎 exe + DLL 已内置）。文档最后校对：2026年10月17日。
 
 ---
 
@@ -16,7 +21,7 @@
 | GPU | RTX 5060 Ti 16 GB（Blackwell `sm_120a`，36 SM，可用 16,311 MiB）|
 | 内存 | 32 GB（单个引擎提交量约 39–49 GB，**只够跑一个**）|
 | CUDA | 13.3（VS Build Tools 2022）|
-| Python | E:\python（3.12，numpy / tokenizers / huggingface_hub）|
+| Python | 3.10+（本机 3.12，numpy / tokenizers / huggingface_hub；见 `conversion/requirements.txt`）|
 
 > **一张卡只跑一个引擎。** 两个实例不只是抢显存：先跑的会被 WDDM 挤到系统内存，
 > 后启动的在 `pinning host state` 阶段报 `cudaMallocHost failed: ... out of memory`
@@ -24,7 +29,8 @@
 
 ## 2. 引擎树：为什么用 CraneBW 而不是指南基线
 
-指南的基线是 `Ambolio/ninfer-4090-windows @ 6eb70a07`（v1.0.8 线），**该仓已从 GitHub 消失（404）**。
+指南的基线是 `Ambolio/ninfer-4090-windows @ 6eb70a07`（v1.0.8 线），
+**该仓已从 GitHub 消失（截至 2026年10月17日仍为 404）**。
 
 改用 **`CraneBW/ninfer-ternary-bonsai-ada`**：它自述就是「Ambolio v1.0.8 Ada 线 + 魔搭三元补丁」
 的派生，容器版本同为 v2，`patches/` 与指南逐文件对应。本机树在 `src/cranebw/`。
@@ -46,7 +52,8 @@
 
 ## 4. 打包器的两处最小修正（不改算法）
 
-`guide/tools/pack.py`：
+`pack.py` 来自魔搭指南，**不在本 git 仓内**（本机参考副本 `guide/tools/pack.py` 不入库）。
+在你的 pack.py 副本上做这两处修正：
 
 - `NINFER_ROOT` 指到本机引擎树（`D:\ai-ninfer\src\cranebw`）；
 - 模板已含 `text/hadamard_signs/widths` 时不再重复追加（否则 `plan_duplicate object name` 中止）。
@@ -79,7 +86,7 @@ engine\build_windows.bat   # 改了 C++ 源码后重编（vcvars64 + ninja -C bu
 
 | 项 | 值 |
 |---|---|
-| 权重来源 | `prism-ml/Ternary-Bonsai-2-27B-gguf` 的 `PQ2_0`（1.58-bit 三元，经镜像下载）|
+| 权重来源 | `prism-ml/Ternary-Bonsai-2-27B-gguf` 的 `PQ2_0`（1.58-bit 三元）与 `ukisai/Swift-Bonsai-2-GGUF`（Swift 版）；下载走代理直连官方站，见 `conversion/parallel_dl.py` |
 | 底座 | Qwen3.8-27B（64 层：16 纯注意力 + 48 GDN）|
 | 打包器 | `guide/tools/pack.py`（**逐字节搬运 2-bit 码字，绝不反量化再量化**）|
 | 模板 | `wei231/ternary-bonsai-3080-sm86-ninfer` 的 `model.ninfer`（SHA256 已对上发布方校验和）|
