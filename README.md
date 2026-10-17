@@ -20,7 +20,8 @@
 > NInfer 上更早已有 [fyb1214](https://huggingface.co/fyb1214/Swift-Bonsai-2-27B-NInfer)
 > 与 [knoopx](https://huggingface.co/knoopx/Swift-Bonsai-2-27B-NInfer) 的 Swift 移植；
 > 本仓的首发点是**词表裁剪 + 逐字节验证 + 开箱即用完整包**——据我们所知，
-> 公开移植中还没有第二家把 Swift-Bonsai-2 的 NInfer 制品裁剪到 208,030 并完成闭环验证。
+> 公开移植中还没有第二家把 Swift-Bonsai-2 的 NInfer 制品裁剪到 208,030 并完成闭环验证；
+> 也是首个公开 **16 GB Blackwell（`sm_120a`）单卡 262,144 上下文**完整实测的 Swift 移植。
 
 ---
 
