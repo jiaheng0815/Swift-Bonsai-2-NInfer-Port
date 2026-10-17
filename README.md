@@ -88,7 +88,7 @@ api_key 随便填（本机未开鉴权）。**思维链在 `reasoning_content` �
 
 ```powershell
 git clone https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port   # 或 Gitee 镜像
-cd Swift-Bonsai-2-NInfer-Port
+cd Swift-Bonsai-2-NInfer-Port   # Gitee 镜像的目录名是 swift-bonsai-2-ninfer-port
 
 # 1. 引擎源码已内置（src/cranebw，基树 ad6cb46 + 本仓补丁已套用），直接编译
 engine\build_windows.bat          # 工具链不同则用 VCVARS / CUDA_PATH / CMAKE_BIN 覆盖
