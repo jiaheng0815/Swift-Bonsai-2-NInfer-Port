@@ -1,7 +1,7 @@
 # 01 · 编译与部署
 
 > 目标：在 **Windows 11 + RTX 5060 Ti 16 GB（Blackwell `sm_120a`，36 SM）** 上
-> 把 **NInfer** 引擎编出来，跑通 **Ternary Bonsai 2 27B**。
+> 把 **NInfer** 引擎编出来，跑通 **Swift Bonsai 2 27B**（基线 Ternary Bonsai 2 仅用于 A/B）。
 >
 > 参照物：魔搭指南 **`shensanshu/ninfer-ada-ternary`**（目标卡 RTX 4080 SUPER / Ada `sm_89` / 32 GB）。
 > 本机是 Blackwell + 16 GB，因此**引擎树、编译架构、SM 计数**三处做了适配，其余严格按指南走。

@@ -192,6 +192,7 @@ src\cranebw\          引擎源码树（第三方 + engine\patches 应用后）
 guide\                魔搭指南原仓（第三方，pack.py / tools\verify；不入库）
 
 完整包布局：bin\（exe+DLL） models\（已裁剪制品） conversion\ launch\ eval\
+          + README.txt / NOTICE.txt / LICENSE-*.txt / SHA256SUMS.txt
 ```
 
 **把 exe / 启动器加进 PATH（可选）**：在 PowerShell 里执行一次（用户级，永久）：
