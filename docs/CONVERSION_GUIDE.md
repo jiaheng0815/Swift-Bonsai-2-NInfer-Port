@@ -61,12 +61,12 @@ $env:NINFER_SRC = $SRC
 
 # ① 只读校验：几何 + 解码 + 往返证明（不写文件）
 python $PACK check `
-  --gguf    E:\models\...\Ternary-Bonsai-2-27B-PQ2_0.gguf `
+  --gguf    E:\models\...\Swift-Bonsai-2-PQ2_0.gguf `
   --template "$REPO\models\template\model.ninfer"
 
-# ② 全量打包
-python $PACK build "$REPO\artifacts\bonsai2-27b.ninfer" `
-  --gguf    E:\models\...\Ternary-Bonsai-2-27B-PQ2_0.gguf `
+# ② 全量打包（Swift；基线把文件名换成 Ternary-... 即可）
+python $PACK build "$REPO\artifacts\swift-bonsai2-27b.ninfer" `
+  --gguf    E:\models\...\Swift-Bonsai-2-PQ2_0.gguf `
   --template "$REPO\models\template\model.ninfer"
 ```
 
