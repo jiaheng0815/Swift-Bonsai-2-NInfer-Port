@@ -89,7 +89,7 @@ git clone https://github.com/jiaheng0815/Swift-Bonsai-2-NInfer-Port   # 或 Gite
 cd Swift-Bonsai-2-NInfer-Port
 
 # 1. 引擎源码已内置（src/cranebw，基树 ad6cb46 + 本仓补丁已套用），直接编译
-engine\build_windows.bat          # 改脚本顶部的工具链路径
+engine\build_windows.bat          # 工具链不同则用 VCVARS / CUDA_PATH / CMAKE_BIN 覆盖
 
 # 2. 生成制品（下载官方 GGUF -> pack -> 四件套 -> 词表裁剪）
 #    打包器 pack.py 来自魔搭指南 shensanshu/ninfer-ada-ternary，不在本 git 仓内；

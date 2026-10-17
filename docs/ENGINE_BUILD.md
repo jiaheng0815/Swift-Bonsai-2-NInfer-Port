@@ -66,6 +66,9 @@
 engine\build_windows.bat   # 改了 C++ 源码后重编（vcvars64 + ninja -C build\b1）
 ```
 
+脚本自动把仓库根目录解析为 `%~dp0..`；工具链默认值是本机路径，克隆到别处时用环境变量
+`VCVARS` / `CUDA_PATH` / `CMAKE_BIN` 覆盖即可。
+
 产物在 `build\b1\apps\`，已加入用户级 PATH：
 
 | exe | 用途 |
